@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.DS_Store
+
+# Downloaded by scripts/download_model.py
+models/*.task
+
+# Session logs from user testing (may identify participants; share deliberately)
+logs/
