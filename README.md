@@ -61,6 +61,16 @@ panel shows the current task:
 
 Pressing `T` again before `Space` logs the unfinished task as `task_abandoned`.
 
+After the sessions, summarize all study logs:
+
+```bash
+python scripts/analyze_logs.py            # reads logs/, writes results/tasks.csv and results/summary.md
+```
+
+`summary.md` has the tables for the report: tasks done, mean and median time, and false
+triggers per task for each condition, then mean time per task. `results/` is git-ignored
+like `logs/`.
+
 ## Tests
 
 ```bash
@@ -84,6 +94,7 @@ handson/
   logger.py      CSV event log per session, saved in logs/
   study.py       study session: participant, condition, task markers
 scripts/download_model.py
+scripts/analyze_logs.py   study logs -> task times and false triggers (logic in handson/analysis.py)
 tests/
 ```
 
