@@ -95,9 +95,9 @@ class GestureFilter:
 
     - A shape only becomes the gesture once it wins `min_votes` of the last
       `window` frames, so the display and the camera do not flicker.
-    - Pinch is latched: once a pinch starts, it stays PINCH while the thumb and
-      index spread apart (which the per-frame rule sees as NONE), until the hand
-      opens fully, makes a fist, or disappears. This gives pinch-to-zoom its range.
+    - Pinch is latched: once a pinch starts, it stays PINCH if the thumb and index
+      loosen while the hand moves (which the per-frame rule sees as NONE), until the
+      hand opens fully, makes a fist, or disappears, so zooming does not cut out.
     - Letting go is fast: once `release_frames` frames in a row disagree with the
       current gesture, it drops to NONE straight away, so the molecule stops
       moving as soon as the hand changes shape.

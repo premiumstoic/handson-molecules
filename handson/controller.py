@@ -10,7 +10,7 @@ from .gestures import HandShape, palm_center
 
 # Sensitivities: tune these with testers (QA checklist section B).
 ROTATE_DEG_PER_UNIT = 300  # moving the hand across the whole camera image turns the molecule 300 degrees
-ZOOM_PER_HAND_SIZE = 1.0   # spreading thumb and index by one hand size zooms by e^1 (about 2.7x)
+ZOOM_PER_UNIT = 3.0        # pinch + moving the hand half the image height zooms by e^1.5 (about 4.5x)
 MOVE_DEADZONE = 0.002      # palm movement smaller than this (in image units) is treated as jitter
 RESET_HOLD_S = 1.0         # open palm must be held this long before the view resets
 
@@ -63,26 +63,36 @@ class ViewController:
         if self._shape is HandShape.FIST:
             return self._rotate_with(palm_center(landmarks))
         if self._shape is HandShape.PINCH:
-            return self._zoom_with(_pinch_spread(landmarks))
+            return self._zoom_with(palm_center(landmarks))
         if self._shape is HandShape.OPEN:
             return self._reset_after_hold(now)
         return "idle"
 
     def _rotate_with(self, position: np.ndarray) -> str:
-        if self._last_position is not None:
-            dx, dy = position - self._last_position
-            if math.hypot(dx, dy) < MOVE_DEADZONE:
-                return "rotate"  # keep the old reference so slow drifts still add up
+        move = self._movement(position)
+        if move is not None:
+            dx, dy = move
             # Same directions as the arrow keys: hand right = Right, hand up = Up (image y grows downward).
             self.rotate(dx * ROTATE_DEG_PER_UNIT, -dy * ROTATE_DEG_PER_UNIT)
-        self._last_position = position
         return "rotate"
 
-    def _zoom_with(self, spread: float) -> str:
-        if self._last_spread is not None:
-            self.zoom(math.exp((spread - self._last_spread) * ZOOM_PER_HAND_SIZE))
-        self._last_spread = spread
+    def _zoom_with(self, position: np.ndarray) -> str:
+        """Pinch works like holding a slider: hand up zooms in, hand down zooms out."""
+        move = self._movement(position)
+        if move is not None:
+            self.zoom(math.exp(-move[1] * ZOOM_PER_UNIT))
         return "zoom"
+
+    def _movement(self, position: np.ndarray) -> np.ndarray | None:
+        """Hand movement since the last applied one, or None for the first frame or jitter."""
+        if self._last_position is None:
+            self._last_position = position
+            return None
+        move = position - self._last_position
+        if math.hypot(*move) < MOVE_DEADZONE:
+            return None  # keep the old reference so slow drifts still add up
+        self._last_position = position
+        return move
 
     def _reset_after_hold(self, now: float) -> str:
         if self._reset_done:
@@ -100,14 +110,6 @@ class ViewController:
     def _release(self) -> None:
         self._shape = HandShape.NONE
         self._last_position: np.ndarray | None = None
-        self._last_spread: float | None = None
         self._open_since: float | None = None
         self._reset_done = False
         self.hold_progress = 0.0  # 0..1 while an open palm is held, for the status panel
-
-
-def _pinch_spread(landmarks: np.ndarray) -> float:
-    """Thumb tip to index tip distance, in hand sizes (wrist -> middle knuckle)."""
-    points = np.asarray(landmarks, dtype=float)[:, :2]
-    size = np.linalg.norm(points[9] - points[0]) or 1e-6
-    return float(np.linalg.norm(points[8] - points[4]) / size)

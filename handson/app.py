@@ -113,7 +113,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.molecule_box)
 
         help_text = QLabel(
-            "<b>Gestures</b><br>Fist + move: rotate<br>Pinch + spread/close: zoom<br>Open palm (hold 1 s): reset"
+            "<b>Gestures</b><br>Fist + move: rotate<br>Pinch + move up/down: zoom<br>Open palm (hold 1 s): reset"
             "<br><br><b>Keyboard (testing)</b><br>Arrow keys: rotate<br>+ / -: zoom<br>R: reset"
             "<br>N / P: next / previous molecule")
         help_text.setObjectName("help")

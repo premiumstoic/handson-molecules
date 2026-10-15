@@ -26,14 +26,12 @@ class RecordingController(ViewController):
         self.calls.append(("reset",))
 
 
-def hand_at(x, y, spread=0.0):
-    """Hand with its palm centre at (x, y), hand size 0.2, and thumb and index tips `spread` hand sizes apart."""
+def hand_at(x, y):
+    """Hand with its palm centre at (x, y) and hand size 0.2."""
     points = np.zeros((21, 3))
     points[:, 0], points[:, 1] = x, y
     points[0, 1] = y + 0.16             # wrist
     points[[5, 9, 13, 17], 1] = y - 0.04  # knuckles: wrist -> middle knuckle = 0.2, palm centre stays at y
-    points[4, 0] = x - spread * 0.1     # thumb tip
-    points[8, 0] = x + spread * 0.1     # index tip
     return points
 
 
@@ -72,13 +70,25 @@ def test_releasing_the_fist_is_the_clutch():
     assert c.calls == []
 
 
-def test_pinch_spread_zooms_in_and_close_zooms_out():
+def test_pinch_up_zooms_in_and_down_zooms_out():
     c = RecordingController()
-    c.update(HandShape.PINCH, hand_at(0.5, 0.5, spread=0.1), now=0)
-    c.update(HandShape.PINCH, hand_at(0.5, 0.5, spread=0.6), now=0.033)
-    c.update(HandShape.PINCH, hand_at(0.5, 0.5, spread=0.3), now=0.066)
+    c.update(HandShape.PINCH, hand_at(0.5, 0.5), now=0)
+    c.update(HandShape.PINCH, hand_at(0.5, 0.4), now=0.033)  # up
+    c.update(HandShape.PINCH, hand_at(0.5, 0.6), now=0.066)  # down
     (_, closer), (_, farther) = c.calls
     assert closer > 1 > farther
+    assert closer * farther < 1  # moved down further than up: net zoom out
+
+
+def test_zoom_out_can_be_repeated_without_a_reverse_move():
+    # The old pinch-spread zoom could never zoom out; pinch-and-pull must work again and again.
+    c = RecordingController()
+    for start in range(3):
+        c.update(HandShape.PINCH, hand_at(0.5, 0.3), now=start)
+        c.update(HandShape.PINCH, hand_at(0.5, 0.5), now=start + 0.1)  # pull down
+        c.update(HandShape.NONE, hand_at(0.5, 0.3), now=start + 0.2)   # let go, move back up
+    factors = [factor for _, factor in c.calls]
+    assert len(factors) == 3 and all(f < 1 for f in factors)
 
 
 def test_open_palm_resets_once_after_holding():

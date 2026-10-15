@@ -19,7 +19,7 @@ STYLES = {
 
 GESTURE_VIEWS = {
     HandShape.FIST: ("fist.png", "Fist", "Move your hand to rotate"),
-    HandShape.PINCH: ("pinch.png", "Pinch", "Spread or close to zoom"),
+    HandShape.PINCH: ("pinch.png", "Pinch", "Move up to zoom in, down to zoom out"),
     HandShape.OPEN: ("palm.png", "Open Palm", "Hold still to reset"),
 }
 

@@ -115,10 +115,10 @@ webcam -> tracking.py (thread) -> TrackingFrame -> app.py timer (30 Hz)
   benzene, glucose; switch with the drop-down or `N` / `P`
 - Webcam preview with the tracked hand skeleton drawn on it
 - Gesture detection: fist, pinch and open palm, stable over 5 of 7 frames; pinch stays
-  active while the fingers spread so it can drive zoom
+  active if the fingers loosen while zooming
 - Landmark smoothing (One Euro filter) and fast release: the molecule stops as soon as the
   hand changes shape
-- Gesture control: fist + move rotates, pinch spread/close zooms, open palm held 1 s resets;
+- Gesture control: fist + move rotates, pinch + move up/down zooms, open palm held 1 s resets;
   any other shape or no hand moves nothing (the clutch)
 - Status card: waiting, hand detected (gesture and hint), tracking lost, camera off; a bar
   fills while an open palm is held to reset
@@ -137,7 +137,7 @@ webcam -> tracking.py (thread) -> TrackingFrame -> app.py timer (30 Hz)
 | Gesture | Hand shape | Action |
 |---|---|---|
 | Rotate | Fist, then move the hand | Horizontal movement turns left/right, vertical tilts up/down |
-| Zoom | Thumb and index pinched, then spread or close them | Spread = closer, close = farther |
+| Zoom | Thumb and index pinched, then move the hand up or down (like a slider) | Up = closer, down = farther |
 | Reset | Open palm held about 1 second | Return to the starting view |
 | (none) | Any other shape, or no hand | Nothing moves |
 
