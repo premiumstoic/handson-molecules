@@ -38,9 +38,11 @@ class ViewController:
         """Called every frame. Returns a short description of the current action for the status panel.
 
         TODO (implementation team):
-          - FIST held: rotate by how far the wrist (landmark 0) moved since the last
-            frame (relative movement). Horizontal -> azimuth, vertical -> elevation.
+          - FIST held: rotate by how far the hand (gestures.palm_center) moved since the
+            last frame (relative movement). Horizontal -> azimuth, vertical -> elevation.
           - PINCH held: zoom by the change in thumb-index distance since the last frame.
+            PINCH stays active while the fingers spread (see GestureFilter), so the
+            distance can grow well past the pinch threshold.
           - OPEN held ~1 s: reset() once, then wait until the hand changes shape.
           - Any other shape: do nothing (this is the "clutch").
           - Smooth landmarks with a One Euro filter before computing movement.
