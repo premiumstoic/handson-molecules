@@ -18,6 +18,7 @@ from .gestures import GestureFilter, HandShape
 from .logger import EventLogger
 from .status import card_view
 from .status_panel import GestureLegend, StatusCard
+from .study import StudySession
 from .tracking import HandTracker
 
 PREVIEW_SIZE = (320, 240)
@@ -27,11 +28,13 @@ KEY_ZOOM = 1.15
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, molecule_name: str, model_path: Path, camera_index: int, log_dir: Path):
+    def __init__(self, molecule_name: str, model_path: Path, camera_index: int, log_dir: Path,
+                 participant: str | None = None, condition: str = "gesture"):
         super().__init__()
         self.resize(1200, 760)
-        self.logger = EventLogger(log_dir)
+        self.logger = EventLogger(log_dir, tag=f"{participant}-{condition}" if participant else "")
         self.logger.log("app_start", molecule_name)
+        self.study = StudySession(self.logger, participant, condition) if participant else None
 
         self.plotter = QtInteractor(self)
         self.plotter.set_background("#101a24")
@@ -43,17 +46,27 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._build_side_panel(), stretch=1)
         self.setCentralWidget(central)
         self._add_shortcuts()
+        if self.study:
+            self.study_label.setText(self.study.status_text())
+            self.study_label.setVisible(True)
         self.show_molecule(molecule_name)
 
-        self.tracker: HandTracker | None = HandTracker(model_path, camera_index)
-        self._tracking = "waiting"  # "off", "waiting", "detected" or "lost"
-        try:
-            self.tracker.start()
-        except (FileNotFoundError, RuntimeError) as error:
-            self.tracker = None
-            self._tracking = "off"
-            self.preview.setText(str(error))
-            self.logger.log("tracking_unavailable", str(error))
+        self.tracker: HandTracker | None = None
+        self._tracking = "waiting"  # "mouse", "off", "waiting", "detected" or "lost"
+        if self.study and self.study.condition == "mouse":
+            self._tracking = "mouse"
+            self.preview.setText("Mouse condition: camera off")
+        else:
+            if self.study:
+                self.plotter.disable()  # gesture condition: the mouse must not move the molecule
+            self.tracker = HandTracker(model_path, camera_index)
+            try:
+                self.tracker.start()
+            except (FileNotFoundError, RuntimeError) as error:
+                self.tracker = None
+                self._tracking = "off"
+                self.preview.setText(str(error))
+                self.logger.log("tracking_unavailable", str(error))
         self.card.show_view(card_view(self._tracking, HandShape.NONE))
 
         self._last_frame_time: float | None = None
@@ -78,6 +91,10 @@ class MainWindow(QMainWindow):
         self.preview.setObjectName("preview")
         layout.addWidget(self.preview)
 
+        self.study_label = QLabel()
+        self.study_label.setObjectName("study")
+        self.study_label.setVisible(False)
+        layout.addWidget(self.study_label)
         self.card = StatusCard()
         layout.addWidget(self.card)
         self.legend = GestureLegend()
@@ -105,6 +122,8 @@ class MainWindow(QMainWindow):
             #side > QLabel { color: #dde6ee; font-size: 14px; }
             #preview { background: #0b1117; border-radius: 6px; color: #9fb0bf; }
             #help { color: #9fb0bf; font-size: 12px; }
+            #study { color: #101a24; background: #f0cd6c; border-radius: 6px; padding: 6px;
+                     font-size: 14px; font-weight: 700; }
             QComboBox { font-size: 14px; padding: 4px; }
         """)
         return panel
@@ -122,8 +141,19 @@ class MainWindow(QMainWindow):
             Qt.Key.Key_N: lambda: self._step_molecule(1),
             Qt.Key.Key_P: lambda: self._step_molecule(-1),
         }
+        if self.study:
+            bindings.update({
+                Qt.Key.Key_T: self.study.start_task,
+                Qt.Key.Key_Space: self.study.end_task,
+                Qt.Key.Key_F: self.study.false_trigger,
+            })
         for key, action in bindings.items():
-            QShortcut(QKeySequence(key), self, activated=action)
+            QShortcut(QKeySequence(key), self, activated=lambda action=action: self._run(action))
+
+    def _run(self, action) -> None:
+        action()
+        if self.study:
+            self.study_label.setText(self.study.status_text())
 
     def show_molecule(self, name: str) -> None:
         self.plotter.clear()

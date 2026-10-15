@@ -35,7 +35,10 @@ class CardView:
 
 
 def card_view(tracking: str, shape: HandShape, action: str = "idle") -> CardView:
-    """tracking is one of "off", "waiting", "detected", "lost"."""
+    """tracking is one of "mouse", "off", "waiting", "detected", "lost"."""
+    if tracking == "mouse":
+        return CardView("idle", "Mouse Condition", "palm.png", "Use the Mouse", "Drag to rotate, scroll to zoom",
+                        faded=True)
     if tracking == "off":
         return CardView("lost", "Camera Off", "warning.png", "No Tracking", "Keyboard controls still work")
     if tracking == "waiting":

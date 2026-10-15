@@ -40,6 +40,27 @@ and the keyboard controls work.
 editor (Terminal, iTerm, VS Code…). If you denied it, enable it in
 System Settings → Privacy & Security → Camera, then restart that app.
 
+## User study sessions
+
+```bash
+python -m handson --participant P01 --condition gesture   # gestures only (mouse disabled)
+python -m handson --participant P01 --condition mouse     # mouse only (camera off)
+```
+
+The log file name includes the participant and condition, e.g.
+`logs/session-20261110-140512-P01-gesture.csv`. Use IDs, never names.
+
+The experimenter presses these keys while the participant works; the yellow line in the side
+panel shows the current task:
+
+| Key | Logs | When |
+|---|---|---|
+| `T` | `task_start` | Read the task out, then press T to start the clock |
+| `Space` | `task_end` | The participant has finished the task |
+| `F` | `false_trigger` | Something moved that the participant did not mean to move |
+
+Pressing `T` again before `Space` logs the unfinished task as `task_abandoned`.
+
 ## Tests
 
 ```bash
@@ -61,6 +82,7 @@ handson/
   gestures.py    landmarks -> hand shape, hand position, stable gesture
   controller.py  hand shape + movement -> camera (rotate, zoom, reset, clutch)
   logger.py      CSV event log per session, saved in logs/
+  study.py       study session: participant, condition, task markers
 scripts/download_model.py
 tests/
 ```

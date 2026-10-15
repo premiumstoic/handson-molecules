@@ -7,9 +7,11 @@ from pathlib import Path
 
 
 class EventLogger:
-    def __init__(self, directory: Path):
+    def __init__(self, directory: Path, tag: str = ""):
+        """`tag` (e.g. "P01-gesture") is added to the file name so study sessions are easy to find."""
         directory.mkdir(parents=True, exist_ok=True)
-        self.path = directory / f"session-{datetime.now():%Y%m%d-%H%M%S}.csv"
+        suffix = f"-{tag}" if tag else ""
+        self.path = directory / f"session-{datetime.now():%Y%m%d-%H%M%S}{suffix}.csv"
         self._file = self.path.open("w", newline="")
         self._writer = csv.writer(self._file)
         self._writer.writerow(["time_s", "event", "detail"])

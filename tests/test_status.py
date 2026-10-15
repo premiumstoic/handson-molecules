@@ -8,7 +8,7 @@ from handson.gestures import HandShape
 from handson.status import STYLES, card_view
 
 ASSETS = Path(__file__).resolve().parent.parent / "handson" / "assets"
-TRACKING = ["off", "waiting", "detected", "lost"]
+TRACKING = ["mouse", "off", "waiting", "detected", "lost"]
 
 
 @pytest.mark.parametrize("tracking", TRACKING)
