@@ -107,3 +107,15 @@ def test_hand_lost_and_back_elsewhere_does_not_jump():
     c.update(HandShape.FIST, hand_at(0.1, 0.9), now=0.5)    # back somewhere else
     c.update(HandShape.FIST, hand_at(0.1, 0.9), now=0.533)
     assert c.calls == []
+
+
+def test_hold_progress_for_the_status_panel():
+    c = RecordingController()
+    c.update(HandShape.OPEN, hand_at(0.5, 0.5), now=0)
+    c.update(HandShape.OPEN, hand_at(0.5, 0.5), now=RESET_HOLD_S / 2)
+    assert c.hold_progress == pytest.approx(0.5)
+    c.update(HandShape.OPEN, hand_at(0.5, 0.5), now=RESET_HOLD_S)
+    assert c.hold_progress == 0  # reset done
+    c.update(HandShape.OPEN, hand_at(0.5, 0.5), now=0)
+    c.update(HandShape.FIST, hand_at(0.5, 0.5), now=0.1)
+    assert c.hold_progress == 0

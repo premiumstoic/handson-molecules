@@ -10,6 +10,10 @@ from rdkit.Chem import AllChem
 MOLECULES = {
     "caffeine": "CN1C=NC2=C1C(=O)N(C(=O)N2C)C",
     "aspirin": "CC(=O)OC1=CC=CC=C1C(=O)O",
+    "adenine": "C1=NC2=NC=NC(=C2N1)N",
+    "ethanol": "CCO",
+    "benzene": "c1ccccc1",
+    "glucose": "OC[C@H]1OC(O)[C@H](O)[C@@H](O)[C@@H]1O",
 }
 
 # CPK colours; anything not listed is drawn pink so it stands out.

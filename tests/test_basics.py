@@ -1,5 +1,7 @@
 import csv
 
+import pytest
+
 from handson import molecule
 from handson.gestures import HandShape, classify
 from handson.logger import EventLogger
@@ -30,3 +32,11 @@ def test_logger_writes_csv(tmp_path):
     rows = list(csv.reader(logger.path.open()))
     assert rows[0] == ["time_s", "event", "detail"]
     assert rows[1][1:] == ["gesture", "fist"]
+
+
+@pytest.mark.parametrize("name", list(molecule.MOLECULES))
+def test_every_molecule_loads_centred_with_bonds(name):
+    mol = molecule.load(name)
+    assert len(mol.symbols) == len(mol.positions) > 1
+    assert mol.bonds
+    assert abs(mol.positions.mean(axis=0)).max() < 1e-6

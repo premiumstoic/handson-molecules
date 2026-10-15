@@ -28,7 +28,7 @@ MediaPipe model storage. It is git-ignored, so each person runs it once.
 ## Run
 
 ```bash
-python -m handson                      # caffeine
+python -m handson                      # caffeine (N / P switches molecule)
 python -m handson --molecule aspirin
 python -m handson --camera 1           # if the wrong camera opens
 ```
@@ -52,6 +52,9 @@ python -m pytest
 handson/
   __main__.py    command-line entry point
   app.py         main window: 3D view, webcam preview, status panel, keyboard shortcuts
+  status.py      what the status card shows for each state (no Qt, unit-tested)
+  status_panel.py  status card and gesture legend widgets (Ali's T4 design)
+  assets/        gesture artwork from Ali's design
   molecule.py    RDKit SMILES -> 3D atoms/bonds -> PyVista ball-and-stick model
   tracking.py    webcam + MediaPipe on a background thread (Qt/VTK stay on the main thread)
   filters.py     One Euro filter that smooths the landmarks
@@ -72,7 +75,8 @@ webcam -> tracking.py (thread) -> TrackingFrame -> app.py timer (30 Hz)
 
 ## What works now
 
-- Caffeine or aspirin rendered as a ball-and-stick model (CPK colours)
+- Six molecules as ball-and-stick models (CPK colours): caffeine, aspirin, adenine, ethanol,
+  benzene, glucose; switch with the drop-down or `N` / `P`
 - Webcam preview with the tracked hand skeleton drawn on it
 - Gesture detection: fist, pinch and open palm, stable over 5 of 7 frames; pinch stays
   active while the fingers spread so it can drive zoom
@@ -80,7 +84,8 @@ webcam -> tracking.py (thread) -> TrackingFrame -> app.py timer (30 Hz)
   hand changes shape
 - Gesture control: fist + move rotates, pinch spread/close zooms, open palm held 1 s resets;
   any other shape or no hand moves nothing (the clutch)
-- Status panel: hand detected / tracking lost, gesture, action, camera fps
+- Status card: waiting, hand detected (gesture and hint), tracking lost, camera off; a bar
+  fills while an open palm is held to reset
 - Keyboard controls for testing: arrow keys rotate, `+`/`-` zoom, `R` resets
 - CSV log of hand, gesture and action events in `logs/`
 

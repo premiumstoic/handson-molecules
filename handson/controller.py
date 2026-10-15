@@ -18,9 +18,13 @@ RESET_HOLD_S = 1.0         # open palm must be held this long before the view re
 class ViewController:
     def __init__(self, plotter: pv.Plotter):
         self.plotter = plotter
+        self.set_home()
+        self._release()
+
+    def set_home(self) -> None:
+        """Fit the camera to what is drawn and make that the view reset() returns to."""
         self.plotter.reset_camera()
         self._home = self.plotter.camera_position
-        self._release()
 
     # --- Camera actions (already working; used by keyboard shortcuts) ---
 
@@ -85,10 +89,12 @@ class ViewController:
             return "idle"
         if self._open_since is None:
             self._open_since = now
-        if now - self._open_since < RESET_HOLD_S:
+        self.hold_progress = min((now - self._open_since) / RESET_HOLD_S, 1.0)
+        if self.hold_progress < 1.0:
             return "hold to reset"
         self.reset()
         self._reset_done = True  # wait until the hand changes shape before resetting again
+        self.hold_progress = 0.0
         return "reset"
 
     def _release(self) -> None:
@@ -97,6 +103,7 @@ class ViewController:
         self._last_spread: float | None = None
         self._open_since: float | None = None
         self._reset_done = False
+        self.hold_progress = 0.0  # 0..1 while an open palm is held, for the status panel
 
 
 def _pinch_spread(landmarks: np.ndarray) -> float:
