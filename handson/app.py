@@ -141,7 +141,7 @@ class MainWindow(QMainWindow):
             self._last_shape = shape
         self.shape_label.setText(f"Gesture: {shape.value}")
 
-        action = self.controller.update(shape, frame.landmarks)
+        action = self.controller.update(shape, frame.landmarks, now=frame.timestamp)
         if action != self._last_action:
             self.logger.log("action", action)
             self._last_action = action

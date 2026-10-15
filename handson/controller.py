@@ -1,9 +1,18 @@
 """Map hand shapes and hand movement to camera actions on the 3D view."""
 
+import math
+import time
+
 import numpy as np
 import pyvista as pv
 
-from .gestures import HandShape
+from .gestures import HandShape, palm_center
+
+# Sensitivities: tune these with testers (QA checklist section B).
+ROTATE_DEG_PER_UNIT = 300  # moving the hand across the whole camera image turns the molecule 300 degrees
+ZOOM_PER_HAND_SIZE = 1.0   # spreading thumb and index by one hand size zooms by e^1 (about 2.7x)
+MOVE_DEADZONE = 0.002      # palm movement smaller than this (in image units) is treated as jitter
+RESET_HOLD_S = 1.0         # open palm must be held this long before the view resets
 
 
 class ViewController:
@@ -11,6 +20,7 @@ class ViewController:
         self.plotter = plotter
         self.plotter.reset_camera()
         self._home = self.plotter.camera_position
+        self._release()
 
     # --- Camera actions (already working; used by keyboard shortcuts) ---
 
@@ -34,18 +44,63 @@ class ViewController:
 
     # --- Gesture mapping ---
 
-    def update(self, shape: HandShape, landmarks: np.ndarray | None) -> str:
+    def update(self, shape: HandShape, landmarks: np.ndarray | None, now: float | None = None) -> str:
         """Called every frame. Returns a short description of the current action for the status panel.
 
-        TODO (implementation team):
-          - FIST held: rotate by how far the hand (gestures.palm_center) moved since the
-            last frame (relative movement). Horizontal -> azimuth, vertical -> elevation.
-          - PINCH held: zoom by the change in thumb-index distance since the last frame.
-            PINCH stays active while the fingers spread (see GestureFilter), so the
-            distance can grow well past the pinch threshold.
-          - OPEN held ~1 s: reset() once, then wait until the hand changes shape.
-          - Any other shape: do nothing (this is the "clutch").
-          - Smooth landmarks with a One Euro filter before computing movement.
-          - Start with one sensitivity constant per action and tune it with testers.
+        Movement is measured relative to the previous frame of the same gesture, so
+        starting a gesture never makes the molecule jump. Any other shape, or no
+        hand, releases the clutch and nothing moves.
         """
+        now = time.monotonic() if now is None else now
+        if shape is not self._shape or landmarks is None:
+            self._release()
+            self._shape = shape if landmarks is not None else HandShape.NONE
+
+        if self._shape is HandShape.FIST:
+            return self._rotate_with(palm_center(landmarks))
+        if self._shape is HandShape.PINCH:
+            return self._zoom_with(_pinch_spread(landmarks))
+        if self._shape is HandShape.OPEN:
+            return self._reset_after_hold(now)
         return "idle"
+
+    def _rotate_with(self, position: np.ndarray) -> str:
+        if self._last_position is not None:
+            dx, dy = position - self._last_position
+            if math.hypot(dx, dy) < MOVE_DEADZONE:
+                return "rotate"  # keep the old reference so slow drifts still add up
+            # Same directions as the arrow keys: hand right = Right, hand up = Up (image y grows downward).
+            self.rotate(dx * ROTATE_DEG_PER_UNIT, -dy * ROTATE_DEG_PER_UNIT)
+        self._last_position = position
+        return "rotate"
+
+    def _zoom_with(self, spread: float) -> str:
+        if self._last_spread is not None:
+            self.zoom(math.exp((spread - self._last_spread) * ZOOM_PER_HAND_SIZE))
+        self._last_spread = spread
+        return "zoom"
+
+    def _reset_after_hold(self, now: float) -> str:
+        if self._reset_done:
+            return "idle"
+        if self._open_since is None:
+            self._open_since = now
+        if now - self._open_since < RESET_HOLD_S:
+            return "hold to reset"
+        self.reset()
+        self._reset_done = True  # wait until the hand changes shape before resetting again
+        return "reset"
+
+    def _release(self) -> None:
+        self._shape = HandShape.NONE
+        self._last_position: np.ndarray | None = None
+        self._last_spread: float | None = None
+        self._open_since: float | None = None
+        self._reset_done = False
+
+
+def _pinch_spread(landmarks: np.ndarray) -> float:
+    """Thumb tip to index tip distance, in hand sizes (wrist -> middle knuckle)."""
+    points = np.asarray(landmarks, dtype=float)[:, :2]
+    size = np.linalg.norm(points[9] - points[0]) or 1e-6
+    return float(np.linalg.norm(points[8] - points[4]) / size)

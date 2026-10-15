@@ -55,7 +55,7 @@ handson/
   molecule.py    RDKit SMILES -> 3D atoms/bonds -> PyVista ball-and-stick model
   tracking.py    webcam + MediaPipe on a background thread (Qt/VTK stay on the main thread)
   gestures.py    landmarks -> hand shape, hand position, smoothing
-  controller.py  hand shape + movement -> camera       <- TODO (camera actions already work)
+  controller.py  hand shape + movement -> camera (rotate, zoom, reset, clutch)
   logger.py      CSV event log per session, saved in logs/
 scripts/download_model.py
 tests/
@@ -75,6 +75,8 @@ webcam -> tracking.py (thread) -> TrackingFrame -> app.py timer (30 Hz)
 - Webcam preview with the tracked hand skeleton drawn on it
 - Gesture detection: fist, pinch and open palm, stable over 5 of 7 frames; pinch stays
   active while the fingers spread so it can drive zoom
+- Gesture control: fist + move rotates, pinch spread/close zooms, open palm held 1 s resets;
+  any other shape or no hand moves nothing (the clutch)
 - Status panel: hand detected / tracking lost, gesture, action, camera fps
 - Keyboard controls for testing: arrow keys rotate, `+`/`-` zoom, `R` resets
 - CSV log of hand, gesture and action events in `logs/`
@@ -82,12 +84,10 @@ webcam -> tracking.py (thread) -> TrackingFrame -> app.py timer (30 Hz)
 ## Next steps (in order)
 
 1. **Everyone:** set up, run the app, and confirm your hand skeleton appears in the preview.
-2. **`controller.update`:** rotate while a fist is held (move by `gestures.palm_center`),
-   zoom while pinching, reset after an open palm is held ~1 s. Anything else does nothing
-   (the clutch).
-3. **Smoothing:** add a One Euro filter to the landmarks before computing movement.
-4. **Tuning:** adjust the thresholds in `gestures.THRESHOLDS` and the sensitivities with
-   people who haven't used the app. Add unit tests with landmark arrays you record.
+2. **Smoothing:** add a One Euro filter to the landmarks before computing movement.
+3. **Tuning:** adjust the thresholds in `gestures.THRESHOLDS` and the sensitivities at the
+   top of `controller.py` with people who haven't used the app. Add unit tests with
+   landmark arrays you record.
 
 ## Gesture set
 
