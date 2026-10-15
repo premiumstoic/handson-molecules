@@ -107,3 +107,12 @@ def test_palm_center_follows_the_hand_not_the_fingers():
     moved = FIST + [0.1, -0.05, 0]
     assert np.allclose(palm_center(moved) - palm_center(FIST), [0.1, -0.05])
     assert palm_center(None) is None
+
+
+def test_letting_go_is_fast_but_engaging_still_needs_votes():
+    gestures = GestureFilter()
+    assert feed(gestures, FIST) is HandShape.FIST
+    assert gestures.update(POINTING, aspect=1) is HandShape.FIST  # one frame: could be noise
+    assert gestures.update(POINTING, aspect=1) is HandShape.NONE  # two frames: let go now
+    assert feed(gestures, FIST, frames=4) is HandShape.NONE
+    assert gestures.update(FIST, aspect=1) is HandShape.FIST      # fifth vote

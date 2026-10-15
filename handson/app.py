@@ -13,6 +13,7 @@ from pyvistaqt import QtInteractor
 
 from . import molecule
 from .controller import ViewController
+from .filters import OneEuroFilter
 from .gestures import GestureFilter, HandShape
 from .logger import EventLogger
 from .tracking import HandTracker
@@ -57,6 +58,7 @@ class MainWindow(QMainWindow):
         self._last_frame_time: float | None = None
         self._last_hand_time: float | None = None
         self._hand_visible = False
+        self.landmark_filter = OneEuroFilter()
         self.gestures = GestureFilter()
         self._last_shape = HandShape.NONE
         self._last_action = ""
@@ -134,14 +136,15 @@ class MainWindow(QMainWindow):
         if not self._hand_visible and self._last_hand_time is not None:
             self._set_status(self.tracking_label, "Tracking lost - show your hand", "bad")
 
+        landmarks = self.landmark_filter(frame.landmarks, frame.timestamp)
         height, width = frame.image.shape[:2]
-        shape = self.gestures.update(frame.landmarks, aspect=width / height)
+        shape = self.gestures.update(landmarks, aspect=width / height)
         if shape != self._last_shape:
             self.logger.log("gesture", shape.value)
             self._last_shape = shape
         self.shape_label.setText(f"Gesture: {shape.value}")
 
-        action = self.controller.update(shape, frame.landmarks, now=frame.timestamp)
+        action = self.controller.update(shape, landmarks, now=frame.timestamp)
         if action != self._last_action:
             self.logger.log("action", action)
             self._last_action = action

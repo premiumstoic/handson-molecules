@@ -54,7 +54,8 @@ handson/
   app.py         main window: 3D view, webcam preview, status panel, keyboard shortcuts
   molecule.py    RDKit SMILES -> 3D atoms/bonds -> PyVista ball-and-stick model
   tracking.py    webcam + MediaPipe on a background thread (Qt/VTK stay on the main thread)
-  gestures.py    landmarks -> hand shape, hand position, smoothing
+  filters.py     One Euro filter that smooths the landmarks
+  gestures.py    landmarks -> hand shape, hand position, stable gesture
   controller.py  hand shape + movement -> camera (rotate, zoom, reset, clutch)
   logger.py      CSV event log per session, saved in logs/
 scripts/download_model.py
@@ -75,6 +76,8 @@ webcam -> tracking.py (thread) -> TrackingFrame -> app.py timer (30 Hz)
 - Webcam preview with the tracked hand skeleton drawn on it
 - Gesture detection: fist, pinch and open palm, stable over 5 of 7 frames; pinch stays
   active while the fingers spread so it can drive zoom
+- Landmark smoothing (One Euro filter) and fast release: the molecule stops as soon as the
+  hand changes shape
 - Gesture control: fist + move rotates, pinch spread/close zooms, open palm held 1 s resets;
   any other shape or no hand moves nothing (the clutch)
 - Status panel: hand detected / tracking lost, gesture, action, camera fps
@@ -84,9 +87,8 @@ webcam -> tracking.py (thread) -> TrackingFrame -> app.py timer (30 Hz)
 ## Next steps (in order)
 
 1. **Everyone:** set up, run the app, and confirm your hand skeleton appears in the preview.
-2. **Smoothing:** add a One Euro filter to the landmarks before computing movement.
-3. **Tuning:** adjust the thresholds in `gestures.THRESHOLDS` and the sensitivities at the
-   top of `controller.py` with people who haven't used the app. Add unit tests with
+2. **Tuning:** adjust the thresholds in `gestures.THRESHOLDS` and the constants at the top
+   of `controller.py` and `filters.py` with people who haven't used the app. Add unit tests with
    landmark arrays you record.
 
 ## Gesture set

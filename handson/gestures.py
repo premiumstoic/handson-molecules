@@ -98,11 +98,15 @@ class GestureFilter:
     - Pinch is latched: once a pinch starts, it stays PINCH while the thumb and
       index spread apart (which the per-frame rule sees as NONE), until the hand
       opens fully, makes a fist, or disappears. This gives pinch-to-zoom its range.
+    - Letting go is fast: once `release_frames` frames in a row disagree with the
+      current gesture, it drops to NONE straight away, so the molecule stops
+      moving as soon as the hand changes shape.
     - No hand clears everything at once, so nothing moves without a hand.
     """
 
-    def __init__(self, window: int = 7, min_votes: int = 5):
+    def __init__(self, window: int = 7, min_votes: int = 5, release_frames: int = 2):
         self.min_votes = min_votes
+        self.release_frames = release_frames
         self.history: deque[HandShape] = deque(maxlen=window)
         self.stable = HandShape.NONE
         self.pinch_latched = False
@@ -121,6 +125,14 @@ class GestureFilter:
             shape = HandShape.PINCH
 
         self.history.append(shape)
+        recent = list(self.history)[-self.release_frames:]
+        if (self.stable is not HandShape.NONE and len(recent) == self.release_frames
+                and all(s is not self.stable for s in recent)):
+            # Release, and keep only the frames that disagreed, so the old gesture
+            # cannot win the vote again and the new one still needs `min_votes`.
+            self.stable = HandShape.NONE
+            self.history = deque(recent, maxlen=self.history.maxlen)
+            return self.stable
         winner, votes = Counter(self.history).most_common(1)[0]
         if votes >= self.min_votes:
             self.stable = winner

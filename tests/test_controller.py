@@ -98,3 +98,12 @@ def test_short_open_palm_does_not_reset():
     c.update(HandShape.OPEN, hand_at(0.5, 0.5), now=0.6)
     c.update(HandShape.OPEN, hand_at(0.5, 0.5), now=1.2)
     assert c.calls == []
+
+
+def test_hand_lost_and_back_elsewhere_does_not_jump():
+    c = RecordingController()
+    c.update(HandShape.FIST, hand_at(0.5, 0.5), now=0)
+    c.update(HandShape.NONE, None, now=0.033)               # tracking lost
+    c.update(HandShape.FIST, hand_at(0.1, 0.9), now=0.5)    # back somewhere else
+    c.update(HandShape.FIST, hand_at(0.1, 0.9), now=0.533)
+    assert c.calls == []
