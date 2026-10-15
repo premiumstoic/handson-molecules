@@ -47,8 +47,9 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         self._add_shortcuts()
         if self.study:
-            self.study_label.setText(self.study.status_text())
+            self._show_study()
             self.study_label.setVisible(True)
+            self.task_label.setVisible(True)
         self.show_molecule(molecule_name)
 
         self.tracker: HandTracker | None = None
@@ -95,6 +96,11 @@ class MainWindow(QMainWindow):
         self.study_label.setObjectName("study")
         self.study_label.setVisible(False)
         layout.addWidget(self.study_label)
+        self.task_label = QLabel()  # what the participant has to do
+        self.task_label.setObjectName("task")
+        self.task_label.setWordWrap(True)
+        self.task_label.setVisible(False)
+        layout.addWidget(self.task_label)
         self.card = StatusCard()
         layout.addWidget(self.card)
         self.legend = GestureLegend()
@@ -122,8 +128,10 @@ class MainWindow(QMainWindow):
             #side > QLabel { color: #dde6ee; font-size: 14px; }
             #preview { background: #0b1117; border-radius: 6px; color: #9fb0bf; }
             #help { color: #9fb0bf; font-size: 12px; }
-            #study { color: #101a24; background: #f0cd6c; border-radius: 6px; padding: 6px;
-                     font-size: 14px; font-weight: 700; }
+            QLabel#study { color: #101a24; background: #f0cd6c; border-radius: 6px; padding: 6px;
+                     font-size: 13px; font-weight: 700; }
+            QLabel#task { color: #ffffff; background: #2b3a48; border: 2px solid #f0cd6c; border-radius: 8px;
+                    padding: 10px; font-size: 17px; font-weight: 600; }
             QComboBox { font-size: 14px; padding: 4px; }
         """)
         return panel
@@ -143,7 +151,7 @@ class MainWindow(QMainWindow):
         }
         if self.study:
             bindings.update({
-                Qt.Key.Key_T: self.study.start_task,
+                Qt.Key.Key_T: self._start_task,
                 Qt.Key.Key_Space: self.study.end_task,
                 Qt.Key.Key_F: self.study.false_trigger,
             })
@@ -153,7 +161,16 @@ class MainWindow(QMainWindow):
     def _run(self, action) -> None:
         action()
         if self.study:
-            self.study_label.setText(self.study.status_text())
+            self._show_study()
+
+    def _start_task(self) -> None:
+        task = self.study.start_task()
+        if task:
+            self.show_molecule(task.molecule)  # also resets the view, so every task starts the same
+
+    def _show_study(self) -> None:
+        self.study_label.setText(self.study.status_text())
+        self.task_label.setText(self.study.task_text())
 
     def show_molecule(self, name: str) -> None:
         self.plotter.clear()

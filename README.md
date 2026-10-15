@@ -50,12 +50,15 @@ python -m handson --participant P01 --condition mouse     # mouse only (camera o
 The log file name includes the participant and condition, e.g.
 `logs/session-20261110-140512-P01-gesture.csv`. Use IDs, never names.
 
-The experimenter presses these keys while the participant works; the yellow line in the side
-panel shows the current task:
+The app has four built-in tasks (`TASKS` in `handson/study.py`, same order in both
+conditions). The participant reads the current task in the box under the camera preview; the
+yellow line above it tells the experimenter what to press next.
+
+The experimenter presses these keys while the participant works:
 
 | Key | Logs | When |
 |---|---|---|
-| `T` | `task_start` | Read the task out, then press T to start the clock |
+| `T` | `task_start` | Shows the next task, loads its molecule in the starting view, and starts the clock |
 | `Space` | `task_end` | The participant has finished the task |
 | `F` | `false_trigger` | Something moved that the participant did not mean to move |
 
