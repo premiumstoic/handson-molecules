@@ -50,19 +50,23 @@ python -m handson --participant P01 --condition mouse     # mouse only (camera o
 The log file name includes the participant and condition, e.g.
 `logs/session-20261110-140512-P01-gesture.csv`. Use IDs, never names.
 
-The app has four built-in tasks (`TASKS` in `handson/study.py`, same order in both
+The app has five built-in tasks (`TASKS` in `handson/study.py`, same order in both
 conditions). The participant reads the current task in the box under the camera preview; the
 yellow line above it tells the experimenter what to press next.
+
+Each task has a goal the app checks from the 3D view (`handson/goals.py`), for example "a red
+oxygen within 20° of pointing at the viewer" or "the molecule smaller than a quarter of the
+view". When the goal is reached the box shows "Goal reached, hold it there"; once it has been
+held for 1 s the task ends by itself (`task_end`). After 90 s without success it is logged as
+`task_timeout`.
 
 The experimenter presses these keys while the participant works:
 
 | Key | Logs | When |
 |---|---|---|
 | `T` | `task_start` | Shows the next task, loads its molecule in the starting view, and starts the clock |
-| `Space` | `task_end` | The participant has finished the task |
+| `Space` | `task_abandoned` | Skip the task (e.g. the participant is stuck or something went wrong) |
 | `F` | `false_trigger` | Something moved that the participant did not mean to move |
-
-Pressing `T` again before `Space` logs the unfinished task as `task_abandoned`.
 
 After the sessions, summarize all study logs:
 
@@ -70,8 +74,8 @@ After the sessions, summarize all study logs:
 python scripts/analyze_logs.py            # reads logs/, writes results/tasks.csv and results/summary.md
 ```
 
-`summary.md` has the tables for the report: tasks done, mean and median time, and false
-triggers per task for each condition, then mean time per task. `results/` is git-ignored
+`summary.md` has the tables for the report: tasks done, timed out and skipped, mean and
+median time, and false triggers per task for each condition, then mean time per task. `results/` is git-ignored
 like `logs/`.
 
 ## Tests

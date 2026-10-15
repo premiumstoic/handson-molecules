@@ -1,6 +1,6 @@
 """Build molecules with RDKit and draw them as ball-and-stick models in PyVista."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import pyvista as pv
@@ -31,6 +31,7 @@ class Molecule:
     symbols: list[str]
     positions: np.ndarray            # (N, 3) in Angstrom
     bonds: list[tuple[int, int, float]]  # (atom a, atom b, bond order)
+    rings: list[tuple[int, ...]] = field(default_factory=list)  # atom indices of each ring
 
 
 def from_smiles(name: str, smiles: str, seed: int = 42) -> Molecule:
@@ -49,6 +50,7 @@ def from_smiles(name: str, smiles: str, seed: int = 42) -> Molecule:
         symbols=[atom.GetSymbol() for atom in mol.GetAtoms()],
         positions=positions,
         bonds=[(b.GetBeginAtomIdx(), b.GetEndAtomIdx(), b.GetBondTypeAsDouble()) for b in mol.GetBonds()],
+        rings=[tuple(ring) for ring in mol.GetRingInfo().AtomRings()],
     )
 
 

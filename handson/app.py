@@ -6,6 +6,8 @@ os.environ.setdefault("QT_API", "pyside6")  # make pyvistaqt use PySide6
 
 from pathlib import Path
 
+import numpy as np
+
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QImage, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget
@@ -14,6 +16,7 @@ from pyvistaqt import QtInteractor
 from . import molecule
 from .controller import ViewController
 from .filters import OneEuroFilter
+from .goals import CameraView
 from .gestures import GestureFilter, HandShape
 from .logger import EventLogger
 from .status import card_view
@@ -152,7 +155,7 @@ class MainWindow(QMainWindow):
         if self.study:
             bindings.update({
                 Qt.Key.Key_T: self._start_task,
-                Qt.Key.Key_Space: self.study.end_task,
+                Qt.Key.Key_Space: self.study.skip_task,
                 Qt.Key.Key_F: self.study.false_trigger,
             })
         for key, action in bindings.items():
@@ -168,13 +171,22 @@ class MainWindow(QMainWindow):
         if task:
             self.show_molecule(task.molecule)  # also resets the view, so every task starts the same
 
+    def _check_task(self) -> None:
+        camera = self.plotter.camera
+        view = CameraView(np.array(camera.position), np.array(camera.focal_point), camera.view_angle)
+        was_met = self.study.goal_met
+        outcome = self.study.update(self.study.current.goal.met(self.molecule, view))
+        if outcome or self.study.goal_met != was_met:
+            self._show_study()
+
     def _show_study(self) -> None:
         self.study_label.setText(self.study.status_text())
         self.task_label.setText(self.study.task_text())
 
     def show_molecule(self, name: str) -> None:
         self.plotter.clear()
-        molecule.add_to_plotter(self.plotter, molecule.load(name))
+        self.molecule = molecule.load(name)
+        molecule.add_to_plotter(self.plotter, self.molecule)
         self.controller.set_home()
         self.plotter.render()
         self.molecule_name = name
@@ -187,6 +199,8 @@ class MainWindow(QMainWindow):
         self.show_molecule(names[(names.index(self.molecule_name) + step) % len(names)])
 
     def _tick(self) -> None:
+        if self.study and self.study.running:
+            self._check_task()
         if self.tracker is None:
             return
         frame = self.tracker.latest()

@@ -20,6 +20,8 @@ GESTURE_LOG = """time_s,event,detail
 21.000,task_start,3
 25.000,action,zoom
 26.000,task_end,3
+27.000,task_start,4
+117.000,task_timeout,4
 """
 
 MOUSE_LOG = """time_s,event,detail
@@ -44,23 +46,24 @@ def write_logs(tmp_path):
 
 def test_task_times_false_triggers_and_actions(tmp_path):
     write_logs(tmp_path)
-    task1, task2, task3 = read_session(tmp_path / "session-1-P01-gesture.csv")
+    task1, task2, task3, task4 = read_session(tmp_path / "session-1-P01-gesture.csv")
     assert (task1.seconds, task1.false_triggers, task1.actions["rotate"]) == (10.0, 2, 2)  # late F still counts
-    assert not task2.completed
+    assert (task2.outcome, task4.outcome) == ("skipped", "timeout")
+    assert not task2.completed and task4.seconds is None
     assert (task3.seconds, task3.actions["zoom"]) == (5.0, 1)
 
 
 def test_sessions_without_a_participant_are_skipped(tmp_path):
     write_logs(tmp_path)
     assert read_session(tmp_path / "session-3.csv") == []
-    assert len(read_logs(tmp_path)) == 4
+    assert len(read_logs(tmp_path)) == 5
 
 
 def test_summary_per_condition(tmp_path):
     write_logs(tmp_path)
     summary = summarize(read_logs(tmp_path))
     gesture, mouse = summary["gesture"], summary["mouse"]
-    assert (gesture["tasks_completed"], gesture["tasks_abandoned"]) == (2, 1)
+    assert (gesture["tasks_completed"], gesture["tasks_timed_out"], gesture["tasks_skipped"]) == (2, 1, 1)
     assert gesture["mean_s"] == 7.5 and gesture["false_triggers_per_task"] == 1.0
     assert (mouse["mean_s"], mouse["false_triggers_per_task"]) == (4.0, 0.0)
 
@@ -69,12 +72,12 @@ def test_report_and_csv(tmp_path):
     write_logs(tmp_path)
     results = read_logs(tmp_path)
     report = markdown_report(results)
-    assert "| gesture | 1 | 2 | 1 | 7.5 |" in report
+    assert "| gesture | 1 | 2 | 1 | 1 | 7.5 |" in report
     assert "| 1 | 10.00 | 4.00 |" in report
     write_task_csv(results, tmp_path / "out" / "tasks.csv")
     lines = (tmp_path / "out" / "tasks.csv").read_text().splitlines()
-    assert lines[0].startswith("participant,condition,task,seconds")
-    assert len(lines) == 5
+    assert lines[0].startswith("participant,condition,task,outcome,seconds")
+    assert len(lines) == 6
 
 
 def test_no_completed_tasks_gives_nan_not_an_error(tmp_path):
