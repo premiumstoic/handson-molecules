@@ -9,3 +9,10 @@ models/*.task
 
 # Session logs from user testing (may identify participants; share deliberately)
 logs/
+
+# Study results built from the logs (same care as logs/)
+results/
+
+# Trial runs of study mode (see README)
+test_logs/
+test_results/

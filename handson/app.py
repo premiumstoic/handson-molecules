@@ -6,15 +6,22 @@ os.environ.setdefault("QT_API", "pyside6")  # make pyvistaqt use PySide6
 
 from pathlib import Path
 
+import numpy as np
+
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QImage, QKeySequence, QPixmap, QShortcut
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget
 from pyvistaqt import QtInteractor
 
 from . import molecule
 from .controller import ViewController
-from .gestures import HandShape, classify
+from .filters import OneEuroFilter
+from .goals import CameraView
+from .gestures import GestureFilter, HandShape
 from .logger import EventLogger
+from .status import card_view
+from .status_panel import GestureLegend, StatusCard
+from .study import StudySession
 from .tracking import HandTracker
 
 PREVIEW_SIZE = (320, 240)
@@ -24,14 +31,16 @@ KEY_ZOOM = 1.15
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, molecule_name: str, model_path: Path, camera_index: int, log_dir: Path):
+    def __init__(self, molecule_name: str, model_path: Path, camera_index: int, log_dir: Path,
+                 participant: str | None = None, condition: str = "gesture"):
         super().__init__()
-        self.setWindowTitle(f"HandsOn Molecules - {molecule_name}")
-        self.resize(1200, 720)
+        self.resize(1200, 760)
+        self.logger = EventLogger(log_dir, tag=f"{participant}-{condition}" if participant else "")
+        self.logger.log("app_start", molecule_name)
+        self.study = StudySession(self.logger, participant, condition) if participant else None
 
         self.plotter = QtInteractor(self)
         self.plotter.set_background("#101a24")
-        molecule.add_to_plotter(self.plotter, molecule.load(molecule_name))
         self.controller = ViewController(self.plotter)
 
         central = QWidget()
@@ -40,23 +49,34 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._build_side_panel(), stretch=1)
         self.setCentralWidget(central)
         self._add_shortcuts()
+        if self.study:
+            self._show_study()
+            self.study_label.setVisible(True)
+            self.task_label.setVisible(True)
+        self.show_molecule(molecule_name)
 
-        self.logger = EventLogger(log_dir)
-        self.logger.log("app_start", molecule_name)
-
-        self.tracker: HandTracker | None = HandTracker(model_path, camera_index)
-        try:
-            self.tracker.start()
-            self._set_status(self.tracking_label, "Waiting for hand", "neutral")
-        except (FileNotFoundError, RuntimeError) as error:
-            self.tracker = None
-            self._set_status(self.tracking_label, "Camera off", "bad")
-            self.preview.setText(str(error))
-            self.logger.log("tracking_unavailable", str(error))
+        self.tracker: HandTracker | None = None
+        self._tracking = "waiting"  # "mouse", "off", "waiting", "detected" or "lost"
+        if self.study and self.study.condition == "mouse":
+            self._tracking = "mouse"
+            self.preview.setText("Mouse condition: camera off")
+        else:
+            if self.study:
+                self.plotter.disable()  # gesture condition: the mouse must not move the molecule
+            self.tracker = HandTracker(model_path, camera_index)
+            try:
+                self.tracker.start()
+            except (FileNotFoundError, RuntimeError) as error:
+                self.tracker = None
+                self._tracking = "off"
+                self.preview.setText(str(error))
+                self.logger.log("tracking_unavailable", str(error))
+        self.card.show_view(card_view(self._tracking, HandShape.NONE))
 
         self._last_frame_time: float | None = None
         self._last_hand_time: float | None = None
-        self._hand_visible = False
+        self.landmark_filter = OneEuroFilter()
+        self.gestures = GestureFilter()
         self._last_shape = HandShape.NONE
         self._last_action = ""
         self.timer = QTimer(self)
@@ -75,25 +95,47 @@ class MainWindow(QMainWindow):
         self.preview.setObjectName("preview")
         layout.addWidget(self.preview)
 
-        self.tracking_label = QLabel()
-        self.shape_label = QLabel("Gesture: -")
-        self.action_label = QLabel("Action: -")
-        self.fps_label = QLabel("Camera: - fps")
-        for label in (self.tracking_label, self.shape_label, self.action_label, self.fps_label):
-            layout.addWidget(label)
+        self.study_label = QLabel()
+        self.study_label.setObjectName("study")
+        self.study_label.setVisible(False)
+        layout.addWidget(self.study_label)
+        self.task_label = QLabel()  # what the participant has to do
+        self.task_label.setObjectName("task")
+        self.task_label.setWordWrap(True)
+        self.task_label.setVisible(False)
+        layout.addWidget(self.task_label)
+        self.card = StatusCard()
+        layout.addWidget(self.card)
+        self.legend = GestureLegend()
+        layout.addWidget(self.legend)
+
+        self.molecule_box = QComboBox()
+        self.molecule_box.addItems([name.capitalize() for name in molecule.MOLECULES])
+        self.molecule_box.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # keep arrow keys for rotating
+        self.molecule_box.activated.connect(lambda i: self.show_molecule(list(molecule.MOLECULES)[i]))
+        layout.addWidget(self.molecule_box)
 
         help_text = QLabel(
-            "<b>Gestures</b><br>Fist + move: rotate<br>Pinch + spread/close: zoom<br>Open palm (hold 1 s): reset"
-            "<br><br><b>Keyboard (testing)</b><br>Arrow keys: rotate<br>+ / -: zoom<br>R: reset")
+            "<b>Gestures</b><br>Fist + move: rotate<br>Pinch + move up/down: zoom<br>Open palm (hold 1 s): reset"
+            "<br><br><b>Keyboard (testing)</b><br>Arrow keys: rotate<br>+ / -: zoom<br>R: reset"
+            "<br>N / P: next / previous molecule")
         help_text.setObjectName("help")
         layout.addWidget(help_text)
         layout.addStretch()
+        self.fps_label = QLabel("Camera: - fps")
+        self.fps_label.setObjectName("help")
+        layout.addWidget(self.fps_label)
 
         panel.setStyleSheet("""
             #side { background: #18232e; border-radius: 8px; }
-            #side QLabel { color: #dde6ee; font-size: 14px; }
+            #side > QLabel { color: #dde6ee; font-size: 14px; }
             #preview { background: #0b1117; border-radius: 6px; color: #9fb0bf; }
             #help { color: #9fb0bf; font-size: 12px; }
+            QLabel#study { color: #101a24; background: #f0cd6c; border-radius: 6px; padding: 6px;
+                     font-size: 13px; font-weight: 700; }
+            QLabel#task { color: #ffffff; background: #2b3a48; border: 2px solid #f0cd6c; border-radius: 8px;
+                    padding: 10px; font-size: 17px; font-weight: 600; }
+            QComboBox { font-size: 14px; padding: 4px; }
         """)
         return panel
 
@@ -107,11 +149,58 @@ class MainWindow(QMainWindow):
             Qt.Key.Key_Equal: lambda: self.controller.zoom(KEY_ZOOM),
             Qt.Key.Key_Minus: lambda: self.controller.zoom(1 / KEY_ZOOM),
             Qt.Key.Key_R: self.controller.reset,
+            Qt.Key.Key_N: lambda: self._step_molecule(1),
+            Qt.Key.Key_P: lambda: self._step_molecule(-1),
         }
+        if self.study:
+            bindings.update({
+                Qt.Key.Key_T: self._start_task,
+                Qt.Key.Key_Space: self.study.skip_task,
+                Qt.Key.Key_F: self.study.false_trigger,
+            })
         for key, action in bindings.items():
-            QShortcut(QKeySequence(key), self, activated=action)
+            QShortcut(QKeySequence(key), self, activated=lambda action=action: self._run(action))
+
+    def _run(self, action) -> None:
+        action()
+        if self.study:
+            self._show_study()
+
+    def _start_task(self) -> None:
+        task = self.study.start_task()
+        if task:
+            self.show_molecule(task.molecule)  # also resets the view, so every task starts the same
+
+    def _check_task(self) -> None:
+        camera = self.plotter.camera
+        view = CameraView(np.array(camera.position), np.array(camera.focal_point), camera.view_angle)
+        was_met = self.study.goal_met
+        outcome = self.study.update(self.study.current.goal.met(self.molecule, view))
+        if outcome or self.study.goal_met != was_met:
+            self._show_study()
+
+    def _show_study(self) -> None:
+        self.study_label.setText(self.study.status_text())
+        self.task_label.setText(self.study.task_text())
+
+    def show_molecule(self, name: str) -> None:
+        self.plotter.clear()
+        self.molecule = molecule.load(name)
+        molecule.add_to_plotter(self.plotter, self.molecule)
+        self.controller.set_home()
+        self.plotter.render()
+        self.molecule_name = name
+        self.molecule_box.setCurrentIndex(list(molecule.MOLECULES).index(name))
+        self.setWindowTitle(f"HandsOn Molecules - {name}")
+        self.logger.log("molecule", name)
+
+    def _step_molecule(self, step: int) -> None:
+        names = list(molecule.MOLECULES)
+        self.show_molecule(names[(names.index(self.molecule_name) + step) % len(names)])
 
     def _tick(self) -> None:
+        if self.study and self.study.running:
+            self._check_task()
         if self.tracker is None:
             return
         frame = self.tracker.latest()
@@ -123,38 +212,34 @@ class MainWindow(QMainWindow):
 
         if frame.landmarks is not None:
             self._last_hand_time = frame.timestamp
-            if not self._hand_visible:
-                self._hand_visible = True
+            if self._tracking != "detected":
+                self._tracking = "detected"
                 self.logger.log("hand_detected", frame.handedness or "")
-            self._set_status(self.tracking_label, f"Hand detected ({frame.handedness})", "good")
-        elif self._hand_visible and frame.timestamp - self._last_hand_time > TRACKING_LOST_AFTER_S:
-            self._hand_visible = False
+        elif self._tracking == "detected" and frame.timestamp - self._last_hand_time > TRACKING_LOST_AFTER_S:
+            self._tracking = "lost"
             self.logger.log("tracking_lost")
-        if not self._hand_visible and self._last_hand_time is not None:
-            self._set_status(self.tracking_label, "Tracking lost - show your hand", "bad")
 
-        shape = classify(frame.landmarks)
+        landmarks = self.landmark_filter(frame.landmarks, frame.timestamp)
+        height, width = frame.image.shape[:2]
+        shape = self.gestures.update(landmarks, aspect=width / height)
         if shape != self._last_shape:
             self.logger.log("gesture", shape.value)
             self._last_shape = shape
-        self.shape_label.setText(f"Gesture: {shape.value}")
 
-        action = self.controller.update(shape, frame.landmarks)
+        action = self.controller.update(shape, landmarks, now=frame.timestamp)
         if action != self._last_action:
             self.logger.log("action", action)
             self._last_action = action
-        self.action_label.setText(f"Action: {action}")
+
+        self.card.show_view(card_view(self._tracking, shape, action))
+        self.card.set_progress(self.controller.hold_progress)
+        self.legend.highlight(shape)
 
     def _show_preview(self, rgb) -> None:
         height, width, _ = rgb.shape
         image = QImage(rgb.data, width, height, 3 * width, QImage.Format.Format_RGB888).copy()
         self.preview.setPixmap(QPixmap.fromImage(image).scaled(
             *PREVIEW_SIZE, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-
-    @staticmethod
-    def _set_status(label: QLabel, text: str, level: str) -> None:
-        color = {"good": "#64cdb9", "bad": "#ff7a7a", "neutral": "#dde6ee"}[level]
-        label.setText(f"<span style='color:{color}'>&#9679;</span> {text}")
 
     def closeEvent(self, event) -> None:
         self.timer.stop()

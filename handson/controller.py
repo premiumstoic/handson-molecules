@@ -1,23 +1,30 @@
 """Map hand shapes and hand movement to camera actions on the 3D view."""
 
-import time 
+import math
+import time
+
 import numpy as np
 import pyvista as pv
 
-from .gestures import HandShape
+from .gestures import HandShape, palm_center
+
+# Sensitivities: tune these with testers (QA checklist section B).
+ROTATE_DEG_PER_UNIT = 300  # moving the hand across the whole camera image turns the molecule 300 degrees
+ZOOM_PER_UNIT = 3.0        # pinch + moving the hand half the image height zooms by e^1.5 (about 4.5x)
+MOVE_DEADZONE = 0.002      # palm movement smaller than this (in image units) is treated as jitter
+RESET_HOLD_S = 1.0         # open palm must be held this long before the view resets
 
 
 class ViewController:
     def __init__(self, plotter: pv.Plotter):
         self.plotter = plotter
+        self.set_home()
+        self._release()
+
+    def set_home(self) -> None:
+        """Fit the camera to what is drawn and make that the view reset() returns to."""
         self.plotter.reset_camera()
         self._home = self.plotter.camera_position
-        self.last_shape = HandShape.NONE
-        self.last_wrist= None
-        self.last_pinch = None
-        self.rest_done = False
-        self.rotation_speed = 180.0
-        self.zoom_speed = 2.0 
 
     # --- Camera actions (already working; used by keyboard shortcuts) ---
 
@@ -41,83 +48,68 @@ class ViewController:
 
     # --- Gesture mapping ---
 
+    def update(self, shape: HandShape, landmarks: np.ndarray | None, now: float | None = None) -> str:
+        """Called every frame. Returns a short description of the current action for the status panel.
 
-    def update(self, shape: HandShape, landmarks: np.ndarray | None) -> str:
-        """Control the molecule using detected hand gestures."""
+        Movement is measured relative to the previous frame of the same gesture, so
+        starting a gesture never makes the molecule jump. Any other shape, or no
+        hand, releases the clutch and nothing moves.
+        """
+        now = time.monotonic() if now is None else now
+        if shape is not self._shape or landmarks is None:
+            self._release()
+            self._shape = shape if landmarks is not None else HandShape.NONE
 
-        if landmarks is None or shape == HandShape.NONE:
-            self.last_shape = HandShape.NONE
-            self.last_wrist = None
-            self.last_pinch = None
-            self.open_start = None
-            self.reset_done = False
-            return "idle"
-
-        points = np.asarray(landmarks)
-
-        if points.shape != (21, 3) and points.shape != (21, 2):
-            return "invalid landmarks"
-
-        wrist = points[0, :2].copy()
-        thumb = points[4, :2]
-        index = points[8, :2]
-
-        pinch_distance = float(np.linalg.norm(thumb - index))
-
-        # Switching gestures disengages the previous action.
-        if shape != self.last_shape:
-            self.last_shape = shape
-            self.last_wrist = wrist
-            self.last_pinch = pinch_distance
-            self.open_start = None
-            self.reset_done = False
-            return "ready"
-
-        # Fist: move the wrist to rotate the molecule.
-        if shape == HandShape.FIST:
-            if self.last_wrist is not None:
-                movement = wrist - self.last_wrist
-
-                dx = float(movement[0])
-                dy = float(movement[1])
-
-                if abs(dx) > 0.002 or abs(dy) > 0.002:
-                    self.rotate(
-                        dx * self.rotation_speed,
-                        -dy * self.rotation_speed
-                    )
-
-            self.last_wrist = wrist
-            return "rotating"
-
-        # Pinch: change finger distance to zoom.
-        if shape == HandShape.PINCH:
-            if self.last_pinch is not None:
-                change = pinch_distance - self.last_pinch
-
-                if abs(change) > 0.002:
-                    factor = 1.0 + change * self.zoom_speed
-                    factor = max(0.8, min(1.2, factor))
-                    self.zoom(factor)
-
-            self.last_pinch = pinch_distance
-            return "zooming"
-
-        # Open palm: hold for one second to reset.
-        if shape == HandShape.OPEN:
-            if self.open_start is None:
-                self.open_start = time.monotonic()
-
-            elapsed = time.monotonic() - self.open_start
-
-            if elapsed >= 1.0 and not self.reset_done:
-                self.reset()
-                self.reset_done = True
-                return "view reset"
-
-            if self.reset_done:
-                return "reset complete"
-
-            return "hold palm to reset"
-
+        if self._shape is HandShape.FIST:
+            return self._rotate_with(palm_center(landmarks))
+        if self._shape is HandShape.PINCH:
+            return self._zoom_with(palm_center(landmarks))
+        if self._shape is HandShape.OPEN:
+            return self._reset_after_hold(now)
         return "idle"
+
+    def _rotate_with(self, position: np.ndarray) -> str:
+        move = self._movement(position)
+        if move is not None:
+            dx, dy = move
+            # Same directions as the arrow keys: hand right = Right, hand up = Up (image y grows downward).
+            self.rotate(dx * ROTATE_DEG_PER_UNIT, -dy * ROTATE_DEG_PER_UNIT)
+        return "rotate"
+
+    def _zoom_with(self, position: np.ndarray) -> str:
+        """Pinch works like holding a slider: hand up zooms in, hand down zooms out."""
+        move = self._movement(position)
+        if move is not None:
+            self.zoom(math.exp(-move[1] * ZOOM_PER_UNIT))
+        return "zoom"
+
+    def _movement(self, position: np.ndarray) -> np.ndarray | None:
+        """Hand movement since the last applied one, or None for the first frame or jitter."""
+        if self._last_position is None:
+            self._last_position = position
+            return None
+        move = position - self._last_position
+        if math.hypot(*move) < MOVE_DEADZONE:
+            return None  # keep the old reference so slow drifts still add up
+        self._last_position = position
+        return move
+
+    def _reset_after_hold(self, now: float) -> str:
+        if self._reset_done:
+            return "idle"
+        if self._open_since is None:
+            self._open_since = now
+        self.hold_progress = min((now - self._open_since) / RESET_HOLD_S, 1.0)
+        if self.hold_progress < 1.0:
+            return "hold to reset"
+        self.reset()
+        self._reset_done = True  # wait until the hand changes shape before resetting again
+        self.hold_progress = 0.0
+        return "reset"
+
+    def _release(self) -> None:
+        self._shape = HandShape.NONE
+        self._last_position: np.ndarray | None = None
+        self._open_since: float | None = None
+        self._reset_done = False
+        self.hold_progress = 0.0  # 0..1 while an open palm is held, for the status panel
