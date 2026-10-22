@@ -16,3 +16,6 @@ results/
 # Trial runs of study mode (see README)
 test_logs/
 test_results/
+
+# Output image of tutorial step 1
+tutorial/step1_result.jpg

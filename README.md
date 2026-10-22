@@ -100,6 +100,7 @@ handson/
   controller.py  hand shape + movement -> camera (rotate, zoom, reset, clutch)
   logger.py      CSV event log per session, saved in logs/
   study.py       study session: participant, condition, task markers
+tutorial/        M1 tutorial code (MediaPipe, RDKit, PyVista), see tutorial/README.md
 scripts/download_model.py
 scripts/analyze_logs.py   study logs -> task times and false triggers (logic in handson/analysis.py)
 tests/
