@@ -151,3 +151,14 @@ webcam -> tracking.py (thread) -> TrackingFrame -> app.py timer (30 Hz)
 Each run writes `logs/session-<date>-<time>.csv` with timestamps of hand, gesture and
 action events. No camera images are saved. `logs/` is git-ignored; share study logs
 deliberately and without participant names.
+
+## Team
+
+CSCI 4250 Group 2. Task numbers (T1–T15) are from our implementation plan.
+
+| Member | Role | Contributions |
+|---|---|---|
+| Zach | Implementation | Gesture detection: the fist, pinch and open palm rules and their tests come from his JavaScript MVP, ported to `handson/gestures.py` and `tests/test_gestures.py` (T1) |
+| Mo | Implementation | First gesture-to-camera controller with unit tests (PR #1, T2) |
+| Ahmet | Project management and QA | Test setup and GitHub workflow (T3); Python app, false-trigger reduction, status panel, study mode and results analysis (T5, T6, T8–T11) |
+| Ali | Video and UI design | Status card design and the gesture artwork in `handson/assets/` (T4) |
