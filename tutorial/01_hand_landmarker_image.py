@@ -7,7 +7,9 @@ create a HandLandmarker from the .task model, give it an mp.Image, read the resu
     python tutorial/01_hand_landmarker_image.py hand.jpg     # or uses an image file
 """
 
+import os
 import sys
+import time
 from pathlib import Path
 
 import cv2
@@ -15,6 +17,7 @@ import mediapipe as mp
 from mediapipe.tasks import python as mp_python
 from mediapipe.tasks.python import vision
 
+CAMERA = int(os.environ.get("HANDSON_CAMERA", "0"))  # webcam index; e.g. HANDSON_CAMERA=1 for a second camera
 MODEL = Path(__file__).resolve().parents[1] / "models" / "hand_landmarker.task"
 OUT = Path(__file__).resolve().parent / "step1_result.jpg"
 
@@ -35,9 +38,18 @@ def read_image() -> "cv2.Mat":
         if image is None:
             sys.exit(f"Could not read {sys.argv[1]}")
         return image
-    capture = cv2.VideoCapture(0)
-    for _ in range(10):  # the first frames are often dark while the camera adjusts
+    capture = cv2.VideoCapture(CAMERA)
+    # The first frames are often empty or dark while the camera starts (an iPhone takes
+    # longer), so keep reading until 10 good frames have come in, for up to about 5 s.
+    good = 0
+    for _ in range(100):
         ok, image = capture.read()
+        if ok:
+            good = good + 1
+            if good == 10:
+                break
+        else:
+            time.sleep(0.05)
     capture.release()
     if not ok:
         sys.exit("Could not read from the webcam (check camera permission).")
@@ -65,18 +77,31 @@ def main() -> None:
     landmarker.close()
 
     # 4. Handle the result: one list of 21 landmarks per detected hand.
-    if not result.hand_landmarks:
+    if len(result.hand_landmarks) == 0:
         print("No hand found. Hold your hand up, palm to the camera, and try again.")
-    height, width = bgr.shape[:2]
-    for hand, handedness in zip(result.hand_landmarks, result.handedness):
-        print(f"\n{handedness[0].category_name} hand (score {handedness[0].score:.2f})")
-        for i, lm in enumerate(hand):
-            print(f"  {i:2d} {NAMES[i]:<11} x={lm.x:.3f} y={lm.y:.3f} z={lm.z:+.3f}")
-            # x and y are normalized to [0, 1], so scale them to pixels to draw.
-            cv2.circle(bgr, (int(lm.x * width), int(lm.y * height)), 4, (0, 255, 0), -1)
+
+    height = bgr.shape[0]
+    width = bgr.shape[1]
+    green = (0, 255, 0)  # OpenCV colours are (blue, green, red)
+
+    for h in range(len(result.hand_landmarks)):
+        hand = result.hand_landmarks[h]       # the 21 points of this hand
+        side = result.handedness[h][0]        # "Left" or "Right", and how sure MediaPipe is
+        print()
+        print(side.category_name, "hand, score", round(side.score, 2))
+
+        for i in range(21):
+            point = hand[i]
+            print(i, NAMES[i], "x =", round(point.x, 3), "y =", round(point.y, 3), "z =", round(point.z, 3))
+
+            # x and y are between 0 and 1, so multiply by the image size to get pixels.
+            x_pixel = int(point.x * width)
+            y_pixel = int(point.y * height)
+            cv2.circle(bgr, (x_pixel, y_pixel), 4, green, -1)  # radius 4, -1 = filled
 
     cv2.imwrite(str(OUT), bgr)
-    print(f"\nSaved {OUT}")
+    print()
+    print("Saved", OUT)
 
 
 if __name__ == "__main__":
