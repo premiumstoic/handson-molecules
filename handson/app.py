@@ -4,6 +4,9 @@ import os
 
 os.environ.setdefault("QT_API", "pyside6")  # make pyvistaqt use PySide6
 
+import ctypes
+import ctypes.util
+import sys
 import time
 from pathlib import Path
 
@@ -312,6 +315,11 @@ class MainWindow(QMainWindow):
             size = "normal"
         return f"{size}-{'active' if self.isActiveWindow() else 'inactive'}"
 
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if sys.platform == "darwin":
+            _no_macos_full_screen(self)
+
     def changeEvent(self, event) -> None:
         # Logged as they happen, so a freeze can be matched to entering full screen or switching Spaces.
         if (event.type() in (QEvent.Type.WindowStateChange, QEvent.Type.ActivationChange)
@@ -327,3 +335,32 @@ class MainWindow(QMainWindow):
         self.logger.close()
         self.plotter.close()
         super().closeEvent(event)
+
+
+# NSWindowCollectionBehavior bits (AppKit).
+_FULL_SCREEN_PRIMARY = 1 << 7
+_FULL_SCREEN_AUXILIARY = 1 << 8
+_FULL_SCREEN_NONE = 1 << 9
+
+
+def _no_macos_full_screen(widget: QWidget) -> None:
+    """Make the green title-bar button maximize the window instead of opening a full-screen Space.
+
+    In a full-screen Space the window sometimes stops reaching the screen: the session log shows
+    the app running, drawing and taking keys while the picture stays frozen until full screen ends.
+    Qt has no setting for this, so it is set on the NSWindow through the Objective-C runtime.
+    """
+    objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+    objc.sel_registerName.restype = ctypes.c_void_p
+    objc.sel_registerName.argtypes = [ctypes.c_char_p]
+    send = ctypes.cast(objc.objc_msgSend, ctypes.c_void_p).value
+    get = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)(send)
+    get_ulong = ctypes.CFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p, ctypes.c_void_p)(send)
+    set_ulong = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulong)(send)
+
+    window = get(int(widget.winId()), objc.sel_registerName(b"window"))  # winId is the NSView
+    if not window:
+        return
+    behavior = get_ulong(window, objc.sel_registerName(b"collectionBehavior"))
+    behavior &= ~(_FULL_SCREEN_PRIMARY | _FULL_SCREEN_AUXILIARY)
+    set_ulong(window, objc.sel_registerName(b"setCollectionBehavior:"), behavior | _FULL_SCREEN_NONE)
