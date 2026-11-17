@@ -1,2 +1,4 @@
 node_modules/
 .vercel/
+.admin-key
+.upload-key
