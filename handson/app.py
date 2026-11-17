@@ -10,7 +10,8 @@ import numpy as np
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QImage, QKeySequence, QPixmap, QShortcut
-from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (QComboBox, QFrame, QHBoxLayout, QLabel, QMainWindow, QStackedWidget, QVBoxLayout,
+                               QWidget)
 from pyvistaqt import QtInteractor
 
 from . import molecule
@@ -43,9 +44,22 @@ class MainWindow(QMainWindow):
         self.plotter.set_background("#101a24")
         self.controller = ViewController(self.plotter)
 
+        # In study mode the 3D view swaps with a message page for the intro and the results.
+        # A page in a stack, not a widget on top: the VTK view draws over any widget laid over it.
+        self.message = QLabel()
+        self.message.setObjectName("message")
+        self.message.setWordWrap(True)
+        self.message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.message.setStyleSheet("""
+            QLabel#message { background: #101a24; color: #dde6ee; font-size: 18px; padding: 60px; }
+        """)
+        self.view_stack = QStackedWidget()
+        self.view_stack.addWidget(self.plotter.interactor)
+        self.view_stack.addWidget(self.message)
+
         central = QWidget()
         layout = QHBoxLayout(central)
-        layout.addWidget(self.plotter.interactor, stretch=3)
+        layout.addWidget(self.view_stack, stretch=3)
         layout.addWidget(self._build_side_panel(), stretch=1)
         self.setCentralWidget(central)
         self._add_shortcuts()
@@ -182,6 +196,41 @@ class MainWindow(QMainWindow):
     def _show_study(self) -> None:
         self.study_label.setText(self.study.status_text())
         self.task_label.setText(self.study.task_text())
+        if self.study.task == 0:
+            self._show_message(self._intro_html())
+        elif self.study.finished:
+            self._show_message(self._results_html())
+        elif self.view_stack.currentWidget() is not self.plotter.interactor:
+            self.view_stack.setCurrentWidget(self.plotter.interactor)
+            self.plotter.render()
+
+    def _show_message(self, html: str) -> None:
+        self.message.setText(html)
+        self.view_stack.setCurrentWidget(self.message)
+
+    def _intro_html(self) -> str:
+        paragraphs = "".join(f"<p>{text}</p>" for text in self.study.intro_text().split("\n\n"))
+        return (f"<h1>Welcome!</h1>{paragraphs}"
+                "<p style='color:#f0cd6c'>Experimenter: press T to start task 1.</p>")
+
+    def _results_html(self) -> str:
+        labels = {"done": "Done", "timeout": "Time is up", "skipped": "Skipped"}
+        rows = "".join(
+            f"<tr><td>{r.task}</td><td>{self.study.tasks[r.task - 1].molecule.capitalize()}</td>"
+            f"<td>{labels[r.outcome]}</td><td align='right'>{r.seconds:.1f} s</td>"
+            f"<td align='right'>{r.false_triggers}</td></tr>"
+            for r in self.study.results)
+        done = [r for r in self.study.results if r.outcome == "done"]
+        mean = f"{sum(r.seconds for r in done) / len(done):.1f} s" if done else "-"
+        return (
+            "<h1>All tasks done. Thank you!</h1>"
+            f"<p>{self.study.participant} · {self.study.condition}</p>"
+            "<table align='center' cellspacing='0' cellpadding='8'>"
+            "<tr><th>Task</th><th>Molecule</th><th>Result</th><th>Time</th><th>False triggers</th></tr>"
+            f"{rows}</table>"
+            f"<p>Completed {len(done)} of {len(self.study.tasks)} tasks · mean time for completed tasks: {mean}</p>"
+            f"<p style='color:#9fb0bf; font-size:14px'>Saved as {self.logger.path.parent.name}/{self.logger.path.name}</p>"
+        )
 
     def show_molecule(self, name: str) -> None:
         self.plotter.clear()

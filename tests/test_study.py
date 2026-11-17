@@ -73,6 +73,26 @@ def test_skip_false_trigger_and_finish(tmp_path):
     ]
 
 
+def test_results_record_each_task(tmp_path):
+    _logger, study = two_tasks(tmp_path)
+    study.start_task(now=0)
+    study.update(True, now=4)
+    study.update(True, now=4 + GOAL_HOLD_S)                  # done after 5 s
+    study.false_trigger()                                    # F just after the task ended still counts for it
+    study.start_task(now=10)
+    study.start_task(now=12)                                 # T while running skips task 2 after 2 s
+    assert [(r.task, r.outcome, r.seconds, r.false_triggers) for r in study.results] == [
+        (1, "done", 4 + GOAL_HOLD_S, 1), (2, "skipped", 2, 0)]
+
+
+def test_intro_explains_the_controls_for_each_condition(tmp_path):
+    gesture = StudySession(EventLogger(tmp_path), "P01", "gesture")
+    mouse = StudySession(EventLogger(tmp_path), "P02", "mouse")
+    assert "hand gestures" in gesture.intro_text() and "mouse" not in gesture.intro_text()
+    assert "drag to rotate" in mouse.intro_text()
+    assert f"{len(TASKS)} short tasks" in mouse.intro_text()
+
+
 def test_status_text_tells_the_experimenter_what_is_next(tmp_path):
     _logger, study = two_tasks(tmp_path)
     assert "press T" in study.status_text()

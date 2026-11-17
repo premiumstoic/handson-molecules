@@ -8,6 +8,7 @@ The experimenter presses keys while the participant works (see README):
     Space  skip the current task (logged as abandoned)
     F      the participant triggered something they did not mean to (false trigger)
 Every marker goes into the session log, which scripts/analyze_logs.py reads.
+The app shows intro_text() before the first task and the results after the last one.
 """
 
 import time
@@ -26,6 +27,22 @@ class StudyTask:
     molecule: str
     text: str
     goal: object  # anything with met(molecule, view) -> bool, see goals.py
+
+
+@dataclass(frozen=True)
+class TaskResult:
+    task: int             # 1-based, as shown to the participant
+    outcome: str          # "done", "timeout" or "skipped"
+    seconds: float        # from task start to its end (for "done", including the hold)
+    false_triggers: int
+
+
+# How each condition is explained on the intro screen; both conditions get the same amount of help.
+CONTROLS = {
+    "gesture": "You control the molecule with hand gestures in front of the camera. "
+               "The panel on the right shows the three gestures and what the camera sees.",
+    "mouse": "You control the molecule with the mouse: drag to rotate it and scroll to zoom.",
+}
 
 
 # The same tasks, in the same order, for both conditions. Placeholder set until the T8
@@ -51,8 +68,10 @@ class StudySession:
         self.task = 0
         self.running = False
         self.outcome = ""   # "done", "timeout" or "skipped" for the last finished task
+        self._finished: list[tuple[int, str, float]] = []  # (task, outcome, seconds)
         self._started = 0.0
         self._met_since: float | None = None
+        self._false_triggers: dict[int, int] = {}
         logger.log("participant", participant)
         logger.log("condition", condition)
 
@@ -68,10 +87,17 @@ class StudySession:
     def goal_met(self) -> bool:
         return self._met_since is not None
 
+    @property
+    def results(self) -> list[TaskResult]:
+        """Finished tasks so far. False triggers are counted at read time, since the experimenter
+        may press F just after a task has ended."""
+        return [TaskResult(task, outcome, seconds, self._false_triggers.get(task, 0))
+                for task, outcome, seconds in self._finished]
+
     def start_task(self, now: float | None = None) -> StudyTask | None:
         """Start the next task and return it, or None when all tasks are done."""
         if self.running:
-            self.skip_task()
+            self.skip_task(now)
         if self.task >= len(self.tasks):
             return None
         self.task += 1
@@ -91,23 +117,26 @@ class StudySession:
         elif self._met_since is None:
             self._met_since = now
         if self._met_since is not None and now - self._met_since >= GOAL_HOLD_S:
-            return self._finish("task_end", "done")
+            return self._finish("task_end", "done", now)
         if now - self._started >= TIME_LIMIT_S:
-            return self._finish("task_timeout", "timeout")
+            return self._finish("task_timeout", "timeout", now)
         return ""
 
-    def skip_task(self) -> None:
+    def skip_task(self, now: float | None = None) -> None:
         if self.running:
-            self._finish("task_abandoned", "skipped")
+            self._finish("task_abandoned", "skipped", now)
 
-    def _finish(self, event: str, outcome: str) -> str:
+    def _finish(self, event: str, outcome: str, now: float | None) -> str:
+        now = time.monotonic() if now is None else now
         self.running = False
         self._met_since = None
         self.outcome = outcome
+        self._finished.append((self.task, outcome, now - self._started))
         self.logger.log(event, str(self.task))
         return outcome
 
     def false_trigger(self) -> None:
+        self._false_triggers[self.task] = self._false_triggers.get(self.task, 0) + 1
         self.logger.log("false_trigger", str(self.task))
 
     def status_text(self) -> str:
@@ -122,6 +151,18 @@ class StudySession:
         else:
             state = f"task {self.task} done, T for next"
         return f"{self.participant} · {self.condition} · {state}"
+
+    def intro_text(self) -> str:
+        """Shown in place of the 3D view before the first task."""
+        return (
+            f"In this test you will do {len(self.tasks)} short tasks with a 3D molecule. "
+            f"{CONTROLS[self.condition]}\n\n"
+            "Each task appears in the box on the right. When you reach the goal, hold still: "
+            f"the task ends by itself after {GOAL_HOLD_S:g} second. "
+            f"You have up to {TIME_LIMIT_S:g} seconds per task.\n\n"
+            "We are testing the app, not you, so there are no wrong answers. "
+            "Please say out loud what you are thinking while you work."
+        )
 
     def task_text(self) -> str:
         """What the participant reads."""
