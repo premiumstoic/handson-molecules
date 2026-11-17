@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HandsOn Study Results</title>
+<style>
+  :root {
+    --bg: #f6f7f8; --card: #ffffff; --ink: #1d2733; --muted: #5d6f80; --line: #dde3e8;
+    --gesture: #2f8f7f; --mouse: #c58a12; --bad: #b3412f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #101a24; --card: #18232e; --ink: #dde6ee; --muted: #9fb0bf; --line: #2b3a48;
+            --gesture: #66b0a2; --mouse: #f0cd6c; --bad: #e07a66; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 60px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  h2 { font-size: 17px; margin: 28px 0 10px; }
+  .muted { color: var(--muted); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  form { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
+  input { flex: 1 1 220px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px;
+          background: var(--card); color: var(--ink); font: inherit; }
+  button { padding: 9px 16px; border: 0; border-radius: 8px; background: var(--gesture); color: #fff;
+           font: inherit; font-weight: 600; cursor: pointer; }
+  button.secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+  .stat b { display: block; font-size: 26px; }
+  .wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; }
+  td.num, th.num { text-align: right; }
+  .tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .tag.gesture { background: color-mix(in srgb, var(--gesture) 20%, transparent); color: var(--gesture); }
+  .tag.mouse { background: color-mix(in srgb, var(--mouse) 22%, transparent); color: var(--mouse); }
+  .legend { display: flex; gap: 16px; font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
+  .error { color: var(--bad); }
+  svg text { fill: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>HandsOn Molecules study results</h1>
+  <p class="muted">Participant IDs, condition order and task times collected from the study laptops.</p>
+  <form id="login">
+    <input id="key" type="password" placeholder="Admin key" autocomplete="current-password" aria-label="Admin key">
+    <button>Show results</button>
+    <button type="button" class="secondary" id="csv" hidden>Download CSV</button>
+  </form>
+  <p id="message" class="muted"></p>
+  <div id="out" hidden>
+    <div class="stats">
+      <div class="card stat"><span class="muted">Participants</span><b id="nParticipants"></b></div>
+      <div class="card stat"><span class="muted">Sessions finished</span><b id="nFinished"></b></div>
+      <div class="card stat"><span class="muted">Gesture mean</span><b id="meanGesture"></b></div>
+      <div class="card stat"><span class="muted">Mouse mean</span><b id="meanMouse"></b></div>
+    </div>
+    <h2>Mean time per task (completed tasks only)</h2>
+    <div class="card"><div id="chart"></div>
+      <div class="legend"><span><i style="background:var(--gesture)"></i>Gesture</span><span><i style="background:var(--mouse)"></i>Mouse</span></div></div>
+    <h2>Per task</h2>
+    <div class="card wrap"><table id="perTask"></table></div>
+    <h2>Participants</h2>
+    <div class="card wrap"><table id="participants"></table></div>
+    <h2>Sessions</h2>
+    <div class="card wrap"><table id="sessions"></table></div>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const mean = xs => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+const secs = x => x == null ? '–' : `${x.toFixed(1)} s`;
+let data = null;
+
+try { $('key').value = sessionStorage.getItem('adminKey') || ''; } catch {}
+
+$('login').addEventListener('submit', async e => {
+  e.preventDefault();
+  const key = $('key').value.trim();
+  $('message').textContent = 'Loading…';
+  try {
+    const res = await fetch('api/results', { headers: { Authorization: `Bearer ${key}` }, cache: 'no-store' });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || res.statusText);
+    try { sessionStorage.setItem('adminKey', key); } catch {}
+    data = json;
+    render();
+    $('message').textContent = `Updated ${new Date().toLocaleTimeString()}.`;
+  } catch (err) {
+    $('message').innerHTML = `<span class="error">${esc(err.message)}</span>`;
+  }
+});
+
+// The newest record per participant and condition; earlier ones are restarts.
+function latestSessions() {
+  const best = new Map();
+  for (const s of data.sessions) {
+    const key = `${s.participant}|${s.condition}`;
+    const cur = best.get(key);
+    if (!cur || (s.finished && !cur.finished) || (s.finished === cur.finished && (s.received || '') > (cur.received || ''))) best.set(key, s);
+  }
+  return [...best.values()];
+}
+
+function taskRows() {
+  return latestSessions().flatMap(s => s.tasks.map(t => ({ participant: s.participant, condition: s.condition, laptop: s.laptop || '',
+    task: t.task, molecule: t.molecule, outcome: t.outcome, seconds: t.seconds, false_triggers: t.false_triggers })));
+}
+
+function render() {
+  const rows = taskRows();
+  const sessions = latestSessions();
+  const done = c => rows.filter(r => r.condition === c && r.outcome === 'done').map(r => r.seconds);
+  $('nParticipants').textContent = data.participants.length;
+  $('nFinished').textContent = sessions.filter(s => s.finished).length;
+  $('meanGesture').textContent = secs(mean(done('gesture')));
+  $('meanMouse').textContent = secs(mean(done('mouse')));
+
+  const tasks = [...new Set(rows.map(r => r.task))].sort((a, b) => a - b);
+  const stat = (task, c) => {
+    const rs = rows.filter(r => r.task === task && r.condition === c);
+    return { n: rs.length, done: rs.filter(r => r.outcome === 'done').length,
+             mean: mean(rs.filter(r => r.outcome === 'done').map(r => r.seconds)),
+             ft: rs.reduce((a, r) => a + (r.false_triggers || 0), 0) };
+  };
+  $('perTask').innerHTML = `<tr><th>Task</th><th>Molecule</th><th class="num">Gesture mean</th><th class="num">Done</th>
+    <th class="num">False triggers</th><th class="num">Mouse mean</th><th class="num">Done</th></tr>` + tasks.map(t => {
+      const g = stat(t, 'gesture'), m = stat(t, 'mouse'), mol = rows.find(r => r.task === t)?.molecule || '';
+      return `<tr><td>${t}</td><td>${esc(mol)}</td><td class="num">${secs(g.mean)}</td><td class="num">${g.done}/${g.n}</td>
+        <td class="num">${g.ft}</td><td class="num">${secs(m.mean)}</td><td class="num">${m.done}/${m.n}</td></tr>`;
+    }).join('');
+
+  drawChart(tasks.map(t => ({ task: t, gesture: stat(t, 'gesture').mean, mouse: stat(t, 'mouse').mean })));
+
+  const status = (id, c) => {
+    const s = sessions.find(x => x.participant === id && x.condition === c);
+    if (!s) return '<span class="muted">not yet</span>';
+    const n = s.tasks.filter(t => t.outcome === 'done').length;
+    return s.finished ? `${n}/${s.tasks.length} done` : `in progress (${s.tasks.length} tasks)`;
+  };
+  const ids = [...new Set([...data.participants.map(p => p.id), ...sessions.map(s => s.participant)])].sort();
+  $('participants').innerHTML = `<tr><th>ID</th><th>Order</th><th>Gesture</th><th>Mouse</th><th>Laptop</th><th>Created</th></tr>` +
+    ids.map(id => {
+      const p = data.participants.find(x => x.id === id);
+      const order = p ? p.order.map(c => `<span class="tag ${c}">${c}</span>`).join(' → ') : '<span class="muted">offline ID</span>';
+      return `<tr><td>${esc(id)}</td><td>${order}</td><td>${status(id, 'gesture')}</td><td>${status(id, 'mouse')}</td>
+        <td>${esc(p?.laptop || '')}</td><td>${p ? new Date(p.created).toLocaleString() : ''}</td></tr>`;
+    }).join('');
+
+  $('sessions').innerHTML = `<tr><th>Participant</th><th>Condition</th><th>Started</th><th>Laptop</th><th>Camera</th>
+    <th>Screen</th><th>OS</th><th>App</th><th class="num">Tasks</th></tr>` +
+    [...data.sessions].sort((a, b) => (b.received || '').localeCompare(a.received || '')).map(s => `<tr>
+      <td>${esc(s.participant)}</td><td><span class="tag ${s.condition}">${s.condition}</span></td>
+      <td>${s.started ? new Date(s.started).toLocaleString() : ''}</td><td>${esc(s.laptop)}</td>
+      <td>${s.camera ? `${s.camera.width}×${s.camera.height} @ ${Math.round(s.camera.fps || 0)}` : '–'}</td>
+      <td>${s.screen ? `${s.screen.width}×${s.screen.height}` : ''}</td><td>${esc(s.os)}</td><td>${esc(s.app_version)}</td>
+      <td class="num">${s.tasks.length}${s.finished ? '' : ' …'}</td></tr>`).join('');
+
+  $('out').hidden = false;
+  $('csv').hidden = false;
+}
+
+function drawChart(points) {
+  const w = 640, h = 220, pad = 34, max = Math.max(1, ...points.flatMap(p => [p.gesture || 0, p.mouse || 0]));
+  const band = (w - pad) / Math.max(points.length, 1), bar = Math.min(28, band / 3);
+  const y = v => h - 24 - (v / max) * (h - 44);
+  const bars = points.map((p, i) => {
+    const x = pad + i * band + band / 2;
+    const one = (v, dx, color) => v == null ? '' :
+      `<rect x="${x + dx}" y="${y(v)}" width="${bar}" height="${h - 24 - y(v)}" rx="3" fill="var(${color})"><title>${v.toFixed(1)} s</title></rect>`;
+    return one(p.gesture, -bar - 2, '--gesture') + one(p.mouse, 2, '--mouse') +
+      `<text x="${x}" y="${h - 6}" text-anchor="middle">Task ${p.task}</text>`;
+  }).join('');
+  const grid = [0, 0.5, 1].map(f => `<text x="0" y="${y(max * f) + 4}">${(max * f).toFixed(0)} s</text>`).join('');
+  $('chart').innerHTML = `<svg viewBox="0 0 ${w} ${h}" width="100%" role="img" aria-label="Mean seconds per task">${grid}${bars}</svg>`;
+}
+
+$('csv').addEventListener('click', () => {
+  const rows = taskRows();
+  const cols = ['participant', 'condition', 'laptop', 'task', 'molecule', 'outcome', 'seconds', 'false_triggers'];
+  const csv = [cols.join(','), ...rows.map(r => cols.map(c => JSON.stringify(r[c] ?? '')).join(','))].join('\n');
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })),
+                                                        download: 'handson-study-tasks.csv' });
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+</script>
+</body>
+</html>

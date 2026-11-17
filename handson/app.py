@@ -6,6 +6,7 @@ os.environ.setdefault("QT_API", "pyside6")  # make pyvistaqt use PySide6
 
 import ctypes
 import ctypes.util
+import json
 import sys
 import time
 from pathlib import Path
@@ -26,6 +27,7 @@ from .gestures import GestureFilter, HandShape
 from .health import HealthMonitor
 from .intro_panel import IntroView
 from .logger import EventLogger
+from .remote import StudyLink
 from .status import card_view
 from .status_panel import GestureLegend, StatusCard
 from .study import StudySession
@@ -39,12 +41,16 @@ KEY_ZOOM = 1.15
 
 class MainWindow(QMainWindow):
     def __init__(self, molecule_name: str, model_path: Path, camera_index: int, log_dir: Path,
-                 participant: str | None = None, condition: str = "gesture"):
+                 participant: str | None = None, condition: str = "gesture", link: StudyLink | None = None):
         super().__init__()
         self.resize(1200, 760)
         self.logger = EventLogger(log_dir, tag=f"{participant}-{condition}" if participant else "")
         self.logger.log("app_start", molecule_name)
         self.study = StudySession(self.logger, participant, condition) if participant else None
+        self.link = link  # study backend: session info and uploads (study mode only)
+        self._uploaded = -1
+        if self.link:
+            self.logger.log("session_info", json.dumps({**self.link.info, "order": self.link.order}))
 
         self.plotter = QtInteractor(self)
         self.plotter.set_background("#101a24")
@@ -220,6 +226,8 @@ class MainWindow(QMainWindow):
     def _show_study(self) -> None:
         self.study_label.setText(self.study.status_text())
         self.task_label.setText(self.study.task_text())
+        if self.link and len(self.study.results) != self._uploaded:
+            self._upload()
         if self.study.task == 0:
             self.view_stack.setCurrentWidget(self.intro)
         elif self.study.finished:
@@ -231,6 +239,30 @@ class MainWindow(QMainWindow):
     def _show_message(self, html: str) -> None:
         self.message.setText(html)
         self.view_stack.setCurrentWidget(self.message)
+
+    def _upload(self) -> None:
+        """Send the session so far; the backend keeps the latest version of each session."""
+        tracker = getattr(self, "tracker", None)  # the first upload happens before the camera starts
+        frame = tracker.latest() if tracker else None
+        camera = ({"width": frame.image.shape[1], "height": frame.image.shape[0], "fps": round(frame.fps, 1)}
+                  if frame else None)
+        screen = self.screen().size()
+        self.link.uploader.submit(self.link.record(
+            self.study.participant, self.study.condition, self.study.results, self.study.tasks,
+            self.study.finished, camera, {"width": screen.width(), "height": screen.height()}))
+        self._uploaded = len(self.study.results)
+        if self.study.finished:
+            self.link.registry.mark_done(self.study.participant, self.study.condition)
+
+    def _next_step_html(self) -> str:
+        """After the last task: which condition this participant still has to do."""
+        if not self.link:
+            return ""
+        left = self.link.registry.remaining(self.study.participant)
+        if not left:
+            return "<p style='color:#c5e4df'>Both conditions are done for this participant.</p>"
+        return (f"<p style='color:#f0cd6c'>Next for {self.study.participant}: the {left[0]} condition. "
+                f"Run: python -m handson --participant {self.study.participant}</p>")
 
     def _results_html(self) -> str:
         labels = {"done": "Done", "timeout": "Time is up", "skipped": "Skipped"}
@@ -248,6 +280,7 @@ class MainWindow(QMainWindow):
             "<tr><th>Task</th><th>Molecule</th><th>Result</th><th>Time</th><th>False triggers</th></tr>"
             f"{rows}</table>"
             f"<p>Completed {len(done)} of {len(self.study.tasks)} tasks · mean time for completed tasks: {mean}</p>"
+            f"{self._next_step_html()}"
             f"<p style='color:#9fb0bf; font-size:14px'>Saved as {self.logger.path.parent.name}/{self.logger.path.name}</p>"
         )
 
@@ -344,6 +377,8 @@ class MainWindow(QMainWindow):
         self.timer.stop()
         if self.tracker:
             self.tracker.stop()
+        if self.link:
+            self.link.uploader.close()  # anything not sent yet stays in logs/outbox/ for next time
         self.logger.log("app_exit")
         self.logger.close()
         self.plotter.close()

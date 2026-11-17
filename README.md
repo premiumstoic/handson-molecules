@@ -43,12 +43,18 @@ System Settings → Privacy & Security → Camera, then restart that app.
 ## User study sessions
 
 ```bash
-python -m handson --participant P01 --condition gesture   # gestures only (mouse disabled)
-python -m handson --participant P01 --condition mouse     # mouse only (camera off)
+python -m handson --participant new        # a new participant: next ID and their first condition
+python -m handson --participant P07        # P07's other condition (the app remembers which is left)
+python -m handson --participant P07 --condition mouse   # force a condition, e.g. to redo a session
 ```
 
+Each participant does both conditions. Odd IDs do gestures first and even IDs the mouse first,
+so learning effects even out (counterbalancing). The terminal prints the ID and condition, and
+the results screen says which condition is next.
+
 The log file name includes the participant and condition, e.g.
-`logs/session-20261110-140512-P01-gesture.csv`. Use IDs, never names.
+`logs/session-20261110-140512-P01-gesture.csv`. Use IDs, never names; keep the list of who got
+which ID on paper, apart from the data.
 
 The app has five built-in tasks (`TASKS` in `handson/study.py`, same order in both
 conditions). The participant reads the current task in the box under the camera preview; the
@@ -86,6 +92,41 @@ python scripts/analyze_logs.py            # reads logs/, writes results/tasks.cs
 median time, and false triggers per task for each condition, then mean time per task. `results/` is git-ignored
 like `logs/`.
 
+### Study backend (IDs and results from all laptops in one place)
+
+`backend/` is a small Vercel project. It hands out participant IDs (P01, P02, ...) so two
+laptops never use the same one, and collects every session's results on an admin page with
+per-task means for gestures vs. mouse, per-participant progress and a CSV download.
+
+What is sent: participant ID, condition, task results (outcome, seconds, false triggers),
+start and end time, a laptop label you choose, app version (git commit), OS and Python version,
+camera size and frame rate, and screen size. Nothing else: no names, host or user names, or
+camera images. Tell participants on the consent form that anonymous results are stored online.
+
+**Deploy once** (from `backend/`, with your Vercel account):
+1. `npx vercel link`, then `npx vercel deploy --prod`.
+2. In the Vercel project: Storage → create a **private** Blob store and connect it to the project.
+3. Settings → Environment Variables: `UPLOAD_KEY` (shared with the study laptops) and
+   `ADMIN_KEY` (only for the team, for the results page). Redeploy.
+4. Open the deployment URL and enter the admin key to see results.
+
+**On each study laptop**, create `study_server.json` in the repository root (git-ignored):
+
+```json
+{"url": "https://<your-project>.vercel.app", "upload_key": "<UPLOAD_KEY>", "laptop": "laptop-a"}
+```
+
+Give every laptop its own label. Without this file, or when offline, everything still works:
+IDs come from a local counter (`laptop-a-L1`, `laptop-a-L2`, ...; odd/even alternation still
+applies), and results wait in `logs/outbox/` and are sent the next time the app runs online.
+The CSV logs in `logs/` are always kept, and `logs/participants.json` remembers each local
+participant's order and finished conditions.
+
+**Try it locally** without deploying: `cd backend && npm install && node dev-server.js`
+(in-memory, keys `dev-upload` / `dev-admin`), then run the app with
+`HANDSON_SERVER_URL=http://localhost:8787 HANDSON_UPLOAD_KEY=dev-upload` and open
+http://localhost:8787. Backend tests: `cd backend && npm test`.
+
 ## Tests
 
 ```bash
@@ -100,7 +141,10 @@ handson/
   app.py         main window: 3D view, webcam preview, status panel, keyboard shortcuts
   status.py      what the status card shows for each state (no Qt, unit-tested)
   status_panel.py  status card and gesture legend widgets (Ali's T4 design)
-  assets/        gesture artwork from Ali's design
+  assets/        gesture artwork from Ali's design, intro illustrations (Codex)
+  intro_panel.py step-by-step intro shown before the first study task
+  health.py      once-a-second health line in the log, to catch freezes
+  remote.py      study backend: participant IDs, condition order, result uploads with an outbox
   molecule.py    RDKit SMILES -> 3D atoms/bonds -> PyVista ball-and-stick model
   tracking.py    webcam + MediaPipe on a background thread (Qt/VTK stay on the main thread)
   filters.py     One Euro filter that smooths the landmarks
@@ -108,6 +152,7 @@ handson/
   controller.py  hand shape + movement -> camera (rotate, zoom, reset, clutch)
   logger.py      CSV event log per session, saved in logs/
   study.py       study session: participant, condition, task markers
+backend/         Vercel API + admin page that collects study results (see "Study backend")
 tutorial/        M1 tutorial code (MediaPipe, RDKit, PyVista), see tutorial/README.md
 scripts/download_model.py
 scripts/analyze_logs.py   study logs -> task times and false triggers (logic in handson/analysis.py)
