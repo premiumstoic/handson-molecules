@@ -24,6 +24,7 @@ from .filters import OneEuroFilter
 from .goals import CameraView
 from .gestures import GestureFilter, HandShape
 from .health import HealthMonitor
+from .intro_panel import IntroView
 from .logger import EventLogger
 from .status import card_view
 from .status_panel import GestureLegend, StatusCard
@@ -49,8 +50,11 @@ class MainWindow(QMainWindow):
         self.plotter.set_background("#101a24")
         self.controller = ViewController(self.plotter)
 
-        # In study mode the 3D view swaps with a message page for the intro and the results.
-        # A page in a stack, not a widget on top: the VTK view draws over any widget laid over it.
+        # In study mode the 3D view swaps with the intro pages before the first task and a results
+        # page after the last. Pages in a stack, not widgets on top: the VTK view draws over them.
+        self.intro = IntroView(self.study.intro_pages(),
+                               on_page=lambda index: self.logger.log("intro_page", str(index + 1))
+                               ) if self.study else None
         self.message = QLabel()
         self.message.setObjectName("message")
         self.message.setWordWrap(True)
@@ -61,6 +65,8 @@ class MainWindow(QMainWindow):
         self.view_stack = QStackedWidget()
         self.view_stack.addWidget(self.plotter.interactor)
         self.view_stack.addWidget(self.message)
+        if self.intro:
+            self.view_stack.addWidget(self.intro)
 
         central = QWidget()
         layout = QHBoxLayout(central)
@@ -163,8 +169,8 @@ class MainWindow(QMainWindow):
 
     def _add_shortcuts(self) -> None:
         bindings = {
-            Qt.Key.Key_Left: lambda: self.controller.rotate(-KEY_ROTATE_DEG, 0),
-            Qt.Key.Key_Right: lambda: self.controller.rotate(KEY_ROTATE_DEG, 0),
+            Qt.Key.Key_Left: lambda: self._left_right(-1),
+            Qt.Key.Key_Right: lambda: self._left_right(1),
             Qt.Key.Key_Up: lambda: self.controller.rotate(0, KEY_ROTATE_DEG),
             Qt.Key.Key_Down: lambda: self.controller.rotate(0, -KEY_ROTATE_DEG),
             Qt.Key.Key_Plus: lambda: self.controller.zoom(KEY_ZOOM),
@@ -188,6 +194,16 @@ class MainWindow(QMainWindow):
         if self.study:
             self._show_study()
 
+    def _on_intro(self) -> bool:
+        return self.intro is not None and self.view_stack.currentWidget() is self.intro
+
+    def _left_right(self, step: int) -> None:
+        """Arrow keys page through the intro, and rotate the molecule everywhere else."""
+        if self._on_intro():
+            self.intro.step(step)
+        else:
+            self.controller.rotate(step * KEY_ROTATE_DEG, 0)
+
     def _start_task(self) -> None:
         task = self.study.start_task()
         if task:
@@ -205,7 +221,7 @@ class MainWindow(QMainWindow):
         self.study_label.setText(self.study.status_text())
         self.task_label.setText(self.study.task_text())
         if self.study.task == 0:
-            self._show_message(self._intro_html())
+            self.view_stack.setCurrentWidget(self.intro)
         elif self.study.finished:
             self._show_message(self._results_html())
         elif self.view_stack.currentWidget() is not self.plotter.interactor:
@@ -215,11 +231,6 @@ class MainWindow(QMainWindow):
     def _show_message(self, html: str) -> None:
         self.message.setText(html)
         self.view_stack.setCurrentWidget(self.message)
-
-    def _intro_html(self) -> str:
-        paragraphs = "".join(f"<p>{text}</p>" for text in self.study.intro_text().split("\n\n"))
-        return (f"<h1>Welcome!</h1>{paragraphs}"
-                "<p style='color:#f0cd6c'>Experimenter: press T to start task 1.</p>")
 
     def _results_html(self) -> str:
         labels = {"done": "Done", "timeout": "Time is up", "skipped": "Skipped"}
@@ -285,6 +296,8 @@ class MainWindow(QMainWindow):
         landmarks = self.landmark_filter(frame.landmarks, frame.timestamp)
         height, width = frame.image.shape[:2]
         shape = self.gestures.update(landmarks, aspect=width / height)
+        if self._on_intro():
+            self.intro.gesture_seen(shape.value)
         if shape != self._last_shape:
             self.logger.log("gesture", shape.value)
             self._last_shape = shape

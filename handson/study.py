@@ -8,7 +8,7 @@ The experimenter presses keys while the participant works (see README):
     Space  skip the current task (logged as abandoned)
     F      the participant triggered something they did not mean to (false trigger)
 Every marker goes into the session log, which scripts/analyze_logs.py reads.
-The app shows intro_text() before the first task and the results after the last one.
+The app shows intro_pages() before the first task and the results after the last one.
 """
 
 import time
@@ -37,12 +37,12 @@ class TaskResult:
     false_triggers: int
 
 
-# How each condition is explained on the intro screen; both conditions get the same amount of help.
-CONTROLS = {
-    "gesture": "You control the molecule with hand gestures in front of the camera. "
-               "The panel on the right shows the three gestures and what the camera sees.",
-    "mouse": "You control the molecule with the mouse: drag to rotate it and scroll to zoom.",
-}
+@dataclass(frozen=True)
+class IntroPage:
+    title: str
+    text: str             # paragraphs separated by a blank line
+    image: str = ""       # file name in assets/, or none
+    try_gesture: str = "" # HandShape value the participant can practise on this page
 
 
 # The same tasks, in the same order, for both conditions. Placeholder set until the T8
@@ -152,17 +152,58 @@ class StudySession:
             state = f"task {self.task} done, T for next"
         return f"{self.participant} · {self.condition} · {state}"
 
-    def intro_text(self) -> str:
-        """Shown in place of the 3D view before the first task."""
-        return (
-            f"In this test you will do {len(self.tasks)} short tasks with a 3D molecule. "
-            f"{CONTROLS[self.condition]}\n\n"
-            "Each task appears in the box on the right. When you reach the goal, hold still: "
-            f"the task ends by itself after {GOAL_HOLD_S:g} second. "
-            f"You have up to {TIME_LIMIT_S:g} seconds per task.\n\n"
+    def intro_pages(self) -> list[IntroPage]:
+        """Step-by-step intro shown in place of the 3D view before the first task:
+        the app, then each control, then the tasks."""
+        gesture = self.condition == "gesture"
+        about = IntroPage(
+            "Welcome to HandsOn Molecules",
+            "This app lets you explore molecules in 3D: you can turn one around, look closer, "
+            "and see how its atoms sit in space.\n\n"
+            + ("You control it with your hand in front of the camera, no mouse or keyboard. "
+               "The camera only follows your hand; no pictures or video are saved."
+               if gesture else
+               "In this session you control it with the mouse.")
+            + "\n\nThe next pages show you how, one step at a time.",
+            "intro_app.png")
+        if gesture:
+            controls = [
+                IntroPage(
+                    "Rotate: make a fist and move it",
+                    "Make a fist and move your hand. The molecule turns with it: left and right "
+                    "turns it around, up and down tilts it.\n\n"
+                    "To stop, just open or relax your hand. Any other hand shape moves nothing, "
+                    "so you can talk and point freely.",
+                    "gesture_fist.png", "fist"),
+                IntroPage(
+                    "Zoom: pinch and move up or down",
+                    "Touch your thumb and index finger together, like holding a small coin. "
+                    "Keep pinching and move your hand up to come closer, or down to move away, "
+                    "like a slider.",
+                    "gesture_pinch.png", "pinch"),
+                IntroPage(
+                    "Reset: hold an open palm",
+                    "Show an open palm with your fingers spread and hold it still. A bar on the "
+                    f"right fills up, and after about {GOAL_HOLD_S:g} second the molecule goes back "
+                    "to how it looked at the start.\n\n"
+                    "Use it whenever you feel lost.",
+                    "gesture_palm.png", "open palm"),
+            ]
+        else:
+            controls = [IntroPage(
+                "Using the mouse",
+                "Drag with the mouse to turn the molecule. Scroll to zoom in and out.",
+                "")]
+        tasks = IntroPage(
+            f"Your {len(self.tasks)} tasks",
+            "Each task asks you to bring the molecule into a certain view, for example to turn "
+            "an atom toward you. It appears in the box on the right, one at a time.\n\n"
+            f"When you reach the goal, hold still: the task ends by itself after {GOAL_HOLD_S:g} "
+            f"second. You have up to {TIME_LIMIT_S:g} seconds for each one.\n\n"
             "We are testing the app, not you, so there are no wrong answers. "
-            "Please say out loud what you are thinking while you work."
-        )
+            "Please say out loud what you are thinking while you work.",
+            "intro_tasks.png")
+        return [about, *controls, tasks]
 
     def task_text(self) -> str:
         """What the participant reads."""

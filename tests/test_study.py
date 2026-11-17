@@ -5,7 +5,9 @@ import csv
 import pytest
 
 from handson import molecule
+from handson.gestures import HandShape
 from handson.logger import EventLogger
+from handson.status_panel import ASSETS
 from handson.study import GOAL_HOLD_S, TASKS, TIME_LIMIT_S, StudySession, StudyTask
 
 GOAL = object()  # the session itself never calls the goal; the app does
@@ -85,12 +87,26 @@ def test_results_record_each_task(tmp_path):
         (1, "done", 4 + GOAL_HOLD_S, 1), (2, "skipped", 2, 0)]
 
 
-def test_intro_explains_the_controls_for_each_condition(tmp_path):
-    gesture = StudySession(EventLogger(tmp_path), "P01", "gesture")
-    mouse = StudySession(EventLogger(tmp_path), "P02", "mouse")
-    assert "hand gestures" in gesture.intro_text() and "mouse" not in gesture.intro_text()
-    assert "drag to rotate" in mouse.intro_text()
-    assert f"{len(TASKS)} short tasks" in mouse.intro_text()
+def test_intro_goes_app_then_each_control_then_tasks(tmp_path):
+    gesture = StudySession(EventLogger(tmp_path), "P01", "gesture").intro_pages()
+    assert gesture[0].title == "Welcome to HandsOn Molecules"
+    assert [page.try_gesture for page in gesture[1:-1]] == ["fist", "pinch", "open palm"]
+    assert gesture[-1].title == f"Your {len(TASKS)} tasks"
+    assert "hand in front of the camera" in gesture[0].text
+
+
+def test_mouse_condition_gets_a_mouse_page_instead_of_gestures(tmp_path):
+    mouse = StudySession(EventLogger(tmp_path), "P02", "mouse").intro_pages()
+    assert len(mouse) == 3
+    assert "Drag with the mouse" in mouse[1].text and not mouse[1].try_gesture
+
+
+def test_intro_gestures_match_the_detector_and_images_exist(tmp_path):
+    pages = StudySession(EventLogger(tmp_path), "P01", "gesture").intro_pages()
+    shapes = {shape.value for shape in HandShape}
+    for page in pages:
+        assert not page.try_gesture or page.try_gesture in shapes
+        assert not page.image or (ASSETS / page.image).exists(), page.image
 
 
 def test_status_text_tells_the_experimenter_what_is_next(tmp_path):

@@ -54,9 +54,13 @@ The app has five built-in tasks (`TASKS` in `handson/study.py`, same order in bo
 conditions). The participant reads the current task in the box under the camera preview; the
 yellow line above it tells the experimenter what to press next.
 
-Before the first task, a welcome screen in place of the 3D view explains the test and how to
-control the molecule in that condition. After the last task, it shows each task's result, time
-and false triggers, and the log file name.
+Before the first task, a step-by-step intro in place of the 3D view explains the app, then each
+gesture on its own page (the participant can try it and the page shows when the camera sees it),
+then the tasks. The mouse condition gets one mouse page instead of the gestures. Back / Next or
+the left and right arrow keys move between steps, and `T` starts task 1 from any step. The
+illustrations in `handson/assets/` (`intro_*.png`, `gesture_*.png`) were made with Codex image
+generation. After the last task, the same area shows each task's result, time and false
+triggers, and the log file name.
 
 Each task has a goal the app checks from the 3D view (`handson/goals.py`), for example "a red
 oxygen within 20° of pointing at the viewer" or "the molecule smaller than a quarter of the
