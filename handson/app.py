@@ -4,11 +4,12 @@ import os
 
 os.environ.setdefault("QT_API", "pyside6")  # make pyvistaqt use PySide6
 
+import time
 from pathlib import Path
 
 import numpy as np
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QImage, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (QComboBox, QFrame, QHBoxLayout, QLabel, QMainWindow, QStackedWidget, QVBoxLayout,
                                QWidget)
@@ -19,6 +20,7 @@ from .controller import ViewController
 from .filters import OneEuroFilter
 from .goals import CameraView
 from .gestures import GestureFilter, HandShape
+from .health import HealthMonitor
 from .logger import EventLogger
 from .status import card_view
 from .status_panel import GestureLegend, StatusCard
@@ -93,6 +95,9 @@ class MainWindow(QMainWindow):
         self.gestures = GestureFilter()
         self._last_shape = HandShape.NONE
         self._last_action = ""
+        self.health = HealthMonitor(time.monotonic())
+        self.plotter.ren_win.AddObserver("StartEvent", lambda *_: self.health.render_started(time.monotonic()))
+        self.plotter.ren_win.AddObserver("EndEvent", lambda *_: self.health.render_ended(time.monotonic()))
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick)
         self.timer.start(33)  # ~30 updates per second
@@ -248,6 +253,11 @@ class MainWindow(QMainWindow):
         self.show_molecule(names[(names.index(self.molecule_name) + step) % len(names)])
 
     def _tick(self) -> None:
+        now = time.monotonic()
+        self.health.tick(now)
+        line = self.health.report(now, self._window_state())
+        if line:
+            self.logger.log("health", line)
         if self.study and self.study.running:
             self._check_task()
         if self.tracker is None:
@@ -256,6 +266,7 @@ class MainWindow(QMainWindow):
         if frame is None or frame.timestamp == self._last_frame_time:
             return
         self._last_frame_time = frame.timestamp
+        self.health.frame()
         self._show_preview(frame.image)
         self.fps_label.setText(f"Camera: {frame.fps:.0f} fps")
 
@@ -289,6 +300,24 @@ class MainWindow(QMainWindow):
         image = QImage(rgb.data, width, height, 3 * width, QImage.Format.Format_RGB888).copy()
         self.preview.setPixmap(QPixmap.fromImage(image).scaled(
             *PREVIEW_SIZE, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+
+    def _window_state(self) -> str:
+        if self.isFullScreen():
+            size = "fullscreen"
+        elif self.isMaximized():
+            size = "maximized"
+        elif self.isMinimized():
+            size = "minimized"
+        else:
+            size = "normal"
+        return f"{size}-{'active' if self.isActiveWindow() else 'inactive'}"
+
+    def changeEvent(self, event) -> None:
+        # Logged as they happen, so a freeze can be matched to entering full screen or switching Spaces.
+        if (event.type() in (QEvent.Type.WindowStateChange, QEvent.Type.ActivationChange)
+                and not self.logger.closed):  # the window can lose focus after closeEvent closed the log
+            self.logger.log("window", self._window_state())
+        super().changeEvent(event)
 
     def closeEvent(self, event) -> None:
         self.timer.stop()

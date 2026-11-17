@@ -21,5 +21,9 @@ class EventLogger:
         self._writer.writerow([f"{time.monotonic() - self._start:.3f}", event, detail])
         self._file.flush()
 
+    @property
+    def closed(self) -> bool:
+        return self._file.closed
+
     def close(self) -> None:
         self._file.close()
